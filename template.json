@@ -18,7 +18,8 @@
             "deploy": {
                 "numReplicas": 1,
                 "restartPolicy": "ON_FAILURE"
-            }
+            },
+            "mountPath": "/app/data"
         }
     },
     "databases": {
