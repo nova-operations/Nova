@@ -44,6 +44,12 @@ def get_agent(model_id: Optional[str] = None):
                  db_path = "nova_memory.db"
         db = SqliteDb(db_file=db_path)
 
+    # Define persistent skills directory
+    skills_path = "/app/data/skills"
+    if not os.path.exists("/app/data"):
+        skills_path = os.path.join(os.getcwd(), "skills")
+    os.makedirs(skills_path, exist_ok=True)
+
     agent = Agent(
         model=model,
         db=db,
@@ -52,6 +58,8 @@ def get_agent(model_id: Optional[str] = None):
             "You are an advanced AI agent capable of self-improvement.",
             "You have access to tools that allow you to interact with your environment.",
             "You can execute shell commands and modify files.",
+            f"Your persistent skills (custom tools/scripts) should be stored in: {skills_path}",
+            "You can create new python scripts in the skills directory and execute them to perform complex tasks.",
             "You can commit and push changes to your own GitHub repository using the `push_to_github` tool.",
             "Always be careful when modifying your own code.",
             "If you are asked to improve yourself, analyze the request and make necessary changes."

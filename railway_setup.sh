@@ -34,9 +34,9 @@ then
     echo "🐘 Adding PostgreSQL service..."
     railway add --database postgres
     echo "✅ Postgres added. DATABASE_URL will be available automatically."
-else
-    echo "💾 Skipping Postgres. Please ensure you manually add a Volume mounted at /app/data in the Railway UI if using SQLite."
 fi
+
+echo "💾 Reminder: To use persistent skills, you MUST manually add a Volume mounted at /app/data in the Railway UI."
 
 echo "⚙️ Setting up environment variables from .env if present..."
 if [ -f ".env" ]; then

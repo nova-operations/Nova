@@ -27,24 +27,17 @@ PostgreSQL is more robust for session management and persistent memory.
 
 ---
 
-## Option B: Using SQLite with Persistent Volume
+## Persistent Volumes (Critical for Skills)
 
-If you prefer SQLite, you must mount a volume to prevent data loss on redeploys.
+Nova uses `/app/data` to store its memory and **persistent skills**.
 
-1. **Create a Railway Project:**
-   ```bash
-   railway init
-   ```
-2. **Add a Volume:**
-   * In the Railway Dashboard, go to your Nova service.
-   * Click **Settings** -> **Volumes** -> **+ Add Volume**.
-   * Set the **Mount Path** to `/app/data`.
-3. **Configure Environment Variables:**
-   * Add `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`, etc.
-4. **Deploy:**
-   ```bash
-   railway up
-   ```
+1.  **Create a Volume:**
+    *   In the Railway Dashboard, go to your Nova service.
+    *   Click **Settings** -> **Volumes** -> **+ Add Volume**.
+    *   Set the **Mount Path** to `/app/data`.
+2.  **Why?**
+    *   **Memory**: Stores the `nova_memory.db` (if not using Postgres).
+    *   **Skills**: Stores custom python scripts and tools the agent creates for itself in `/app/data/skills`. These are "buckets" of functionality that survive redeploys.
 
 ---
 
