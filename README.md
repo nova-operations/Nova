@@ -1,5 +1,7 @@
 # Nova Agent
 
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/Morty-pilot/Nova)
+
 Nova is an advanced, self-improving AI agent designed to run on Railway.
 It uses OpenRouter for its LLM capabilities and communicates via Telegram.
 
