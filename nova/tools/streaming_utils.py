@@ -14,6 +14,33 @@ STREAM_HEADER = "[SAU: {name}]"
 # Target chat_id for live updates (default: 98746403)
 DEFAULT_CHAT_ID = "98746403"
 
+# Cached bot instance to avoid repeated imports
+_cached_bot_instance = None
+
+
+def _get_telegram_bot():
+    """
+    Get the Telegram bot instance with better fallback handling.
+    Tries multiple sources to find a valid bot instance.
+    """
+    global _cached_bot_instance
+    
+    # Return cached instance if available
+    if _cached_bot_instance:
+        return _cached_bot_instance
+    
+    # Try to get from telegram_bot module
+    try:
+        from nova.telegram_bot import telegram_bot_instance
+        if telegram_bot_instance:
+            _cached_bot_instance = telegram_bot_instance
+            return telegram_bot_instance
+    except ImportError as e:
+        logger.debug(f"Could not import telegram_bot_instance: {e}")
+    
+    # If still not available, return None (will log warning)
+    return None
+
 
 async def send_live_update(
     message: str,
@@ -53,10 +80,17 @@ async def send_live_update(
     formatted_message = f"{emoji} {header} {message}"
     
     try:
-        from nova.telegram_bot import telegram_bot_instance
+        # Get bot instance using our helper function
+        telegram_bot_instance = _get_telegram_bot()
         
         if not telegram_bot_instance:
-            logger.warning("Telegram bot instance not available for live update")
+            logger.warning(f"Telegram bot instance not available for live update to {subagent_name}")
+            # Debug: try to show what's happening
+            try:
+                from nova import telegram_bot
+                logger.debug(f"telegram_bot module: {dir(telegram_bot)}")
+            except Exception as e2:
+                logger.debug(f"Could not inspect telegram_bot: {e2}")
             return False
         
         from nova.long_message_handler import send_message_with_fallback

@@ -52,6 +52,26 @@ load_dotenv()
 # Global dictionary to store running subagents
 SUBAGENTS: Dict[str, Dict] = {}
 
+# Global bot instance - imported lazily to avoid circular imports
+_telegram_bot_instance = None
+
+
+def get_telegram_bot():
+    """Get the Telegram bot instance, trying multiple sources."""
+    global _telegram_bot_instance
+    
+    # First, try to get from telegram_bot module
+    try:
+        from nova.telegram_bot import telegram_bot_instance
+        if telegram_bot_instance:
+            _telegram_bot_instance = telegram_bot_instance
+            return telegram_bot_instance
+    except ImportError:
+        pass
+    
+    # Return cached instance if available
+    return _telegram_bot_instance
+
 
 async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     """
@@ -104,10 +124,10 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
         status = subagent_data["status"]
         result = subagent_data["result"]
         
-        # Get the telegram bot instance
-        from nova.telegram_bot import telegram_bot_instance
+        # Get the telegram bot instance using our helper
+        telegram_bot = get_telegram_bot()
         
-        if telegram_bot_instance:
+        if telegram_bot:
             status_emoji = "✅" if status == "completed" else "❌"
             status_text = "completed successfully" if status == "completed" else "failed"
             
@@ -121,7 +141,7 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             
             # Use long message handler to automatically convert to PDF if needed
             await send_message_with_fallback(
-                telegram_bot_instance,
+                telegram_bot,
                 int(final_chat_id),
                 msg,
                 title=f"Subagent Report: {final_name}"
@@ -318,6 +338,9 @@ async def create_subagent(
         instructions,
     ]
 
+    # FIX: Removed num_history_runs to avoid Agno warning about setting both
+    # num_history_messages and num_history_runs at the same time.
+    # Using num_history_messages=10 only to keep last 10 messages for context.
     agent = Agent(
         model=model,
         db=db,
@@ -327,7 +350,7 @@ async def create_subagent(
         markdown=True,
         add_history_to_context=True,
         num_history_messages=10,  # Only keep last 10 messages for context
-        num_history_runs=3,  # Only keep last 3 runs
+        # NOTE: Removed num_history_runs to fix Agno warning
         add_datetime_to_context=True,  # Helpful for news/search
     )
 
