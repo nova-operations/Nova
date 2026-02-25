@@ -80,21 +80,29 @@ def push_to_github(
 
 
 def pull_latest_changes(branch: str = "main") -> str:
-    """Pulls the latest changes from the remote repository."""
+    """
+    Pulls the latest changes from the remote repository.
+    Uses git reset --hard to ensures the local repo exactly matches the remote.
+    """
     repo_dir = "/app/data/nova_repo"
     if not os.path.exists(repo_dir):
         repo_dir = os.getcwd()
 
     try:
+        # 1. Fetch
+        subprocess.run(["git", "fetch", "origin", branch], cwd=repo_dir, check=True)
+
+        # 2. Reset hard
         result = subprocess.run(
-            ["git", "pull", "origin", branch],
+            ["git", "reset", "--hard", f"origin/{branch}"],
             cwd=repo_dir,
             capture_output=True,
             text=True,
         )
+
         if result.returncode == 0:
-            return f"Successfully pulled latest changes from {branch}."
+            return f"Successfully updated to latest {branch} (forced update)."
         else:
-            return f"Error pulling changes: {result.stderr}"
+            return f"Error resetting to remote: {result.stderr}"
     except Exception as e:
         return f"Error pulling changes: {e}"

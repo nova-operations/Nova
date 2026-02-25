@@ -24,9 +24,9 @@ else
     else
         echo "🔄 Updating existing repository in persistent volume..."
         cd "$REPO_DIR"
-        # Reset any local changes to ensure clean update if needed (optional)
-        # git reset --hard HEAD
-        git pull "$AUTH_REPO_URL"
+        # Force update to remote state
+        git fetch origin
+        git reset --hard origin/main
     fi
 
     # Configure Git identity for the agent
