@@ -1,5 +1,7 @@
 import os
-from typing import Optional
+import json
+import asyncio
+from typing import Optional, List
 from dotenv import load_dotenv
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
@@ -20,15 +22,13 @@ setup_logging()
 
 def get_agent(model_id: Optional[str] = None):
     """
-    Creates and returns a configured Agno Agent.
+    Creates and returns a configured Agno Agent (Nova).
+    Nova acts as a Project Manager that spawns subagents and provides heartbeats.
     """
     if model_id is None:
         model_id = os.getenv("AGENT_MODEL", "google/gemini-2.0-flash-001")
     api_key = os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
-        print("Warning: OPENROUTER_API_KEY environment variable not set. Agent might fail if model is used.")
     
-    # Configure the model to use OpenRouter
     model = OpenAIChat(
         id=model_id,
         api_key=api_key,
@@ -41,44 +41,35 @@ def get_agent(model_id: Optional[str] = None):
             database_url = database_url.replace("postgres://", "postgresql://", 1)
         db = PostgresDb(session_table="nova_agent_sessions", db_url=database_url)
     else:
-        db_path = "/app/data/nova_memory.db"
-        if not os.path.exists("/app/data"):
-            db_path = "nova_memory.db"
-        db = SqliteDb(db_file=db_path)
+        db = SqliteDb(db_file="/app/data/nova_memory.db")
 
-    # Define skills directory
-    # We prioritize the repo's skills folder so pushed skills are available
     repo_skills_path = "/app/data/nova_repo/skills"
     persistent_skills_path = "/app/data/skills"
-    
-    # Fallback for local testing
-    if not os.path.exists("/app/data"):
-        repo_skills_path = os.path.join(os.getcwd(), "skills")
-        persistent_skills_path = os.path.join(os.getcwd(), "persistent_skills")
-
     os.makedirs(repo_skills_path, exist_ok=True)
     os.makedirs(persistent_skills_path, exist_ok=True)
 
     agent = Agent(
         model=model,
         db=db,
-        description="I am Nova, a self-improving AI agent running on Railway.",
+        description="I am Nova, the Project Manager AI. I solve complex tasks by coordinating teams of subagents.",
         instructions=[
-            "You are an advanced AI agent capable of self-improvement.",
-            "You have access to tools that allow you to interact with your environment.",
-            "You can execute shell commands and modify files.",
-            "Your workspace is in `/app/data/nova_repo`. This is where your source code is mirrored and where you should make changes.",
-            "You have access to the Agno MCP Server (`agno_docs`) which provides documentation and tools for the Agno framework. Always use it to look up the best ways to implement/improve your logic.",
-            f"Your skills are located in: {repo_skills_path} (repository skills) and {persistent_skills_path} (runtime skills).",
-            "You can create new skills by creating subdirectories here with a `SKILL.md` file.",
-            "Each skill directory should contain:",
-            "  1. `SKILL.md`: Instructions with YAML frontmatter (name, description).",
-            "  2. `scripts/`: Python scripts or other tools.",
-            "  3. `references/`: Supporting documentation.",
-            "You can use the `get_skill_instructions`, `get_skill_script`, and `get_skill_reference` tools to discover and use these skills.",
-            "You can commit and push changes to your own GitHub repository using the `push_to_github` tool. This will trigger a redeployment.",
-            "Always be careful when modifying your own code. Test your changes locally using `python smoke_test.py` before pushing.",
-            "If you are asked to improve yourself, analyze the codebase in `/app/data/nova_repo`, make necessary changes, and push them."
+            "## ROLE: PROJECT MANAGER (PM)",
+            "You are Nova. Your primary responsibility is to orchestrate solutions using specialized subagents.",
+            
+            "## OPERATIONAL WORKFLOW:",
+            "1. **Analyze & Delegate**: For every user request, analyze the requirements and SPAWN one or more subagents using `create_subagent`.",
+            "2. **Heartbeat Protocol**: While subagents are working, you MUST provide 'Heartbeat Updates' to the user. Do not wait for complete silence.",
+            "3. **Monitor Progress**: Use `list_subagents` and `get_subagent_result` to track the state of your team.",
+            "4. **Synthesis**: Once subagents complete their tasks, gather their outputs and provide a final synthesized response to the user.",
+
+            "## TOOLS & SKILLS:",
+            "- You have full access to the filesystem and shell.",
+            "- You use PostgreSQL for persistent memory of MCP configurations and agent states.",
+            "- You use Agno MCP tools to fetch the latest documentation and remain 'state-of-the-art'.",
+
+            "## COLLABORATION:",
+            "- Always treat subagents as your team members. Provide them with clear, detailed instructions.",
+            "- If a subagent fails, analyze the error and either retry or spawn a different specialist."
         ],
         skills=Skills(loaders=[
             LocalSkills(repo_skills_path),
@@ -107,38 +98,28 @@ def get_agent(model_id: Optional[str] = None):
         cache_session=True, 
     )
 
-    # Dynamically add MCP tools from registry
+    # Initialize MCP Registry and Tools
     try:
-        # Add default Agno MCP tools for self-improvement guidance
-        agent.tools.append(MCPTools(
-            name="agno_docs",
-            transport="streamable-http",
-            url="https://docs.agno.com/mcp"
-        ))
+        # Standard Agno Docs MCP
+        agent.tools.append(MCPTools(name="agno_docs", transport="streamable-http", url="https://docs.agno.com/mcp"))
 
+        # Load custom MCPs from Postgres/Registry
         registered_servers = mcp_registry.list_servers()
         for s in registered_servers:
-            mcp_kwargs = {
-                "name": s['name'],
-                "transport": s['transport']
-            }
+            mcp_kwargs = {"name": s['name'], "transport": s['transport']}
             if s['transport'] == "stdio":
-                mcp_kwargs["command"] = s['command']
-                mcp_kwargs["args"] = s['args']
-                mcp_kwargs["env"] = s['env']
+                mcp_kwargs.update({"command": s['command'], "args": s['args'], "env": s['env']})
             elif s['transport'] == "streamable-http":
                 mcp_kwargs["url"] = s['url']
+                # Include headers if they represent auth
+                if s.get('env'): mcp_kwargs['env'] = s['env']
             
-            mcp_tool = MCPTools(**mcp_kwargs)
-            agent.tools.append(mcp_tool)
+            agent.tools.append(MCPTools(**mcp_kwargs))
     except Exception as e:
         print(f"Error loading MCP tools: {e}")
     
     return agent
 
 if __name__ == "__main__":
-    try:
-        agent = get_agent()
-        print("Agent initialized successfully.")
-    except Exception as e:
-        print(f"Failed to initialize agent: {e}")
+    agent = get_agent()
+    print("Nova PM Agent initialized.")
