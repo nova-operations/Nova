@@ -1,31 +1,36 @@
 {
+    "version": "v1",
     "name": "Nova Agent",
-    "description": "A self-improving AI agent running on Railway with PostgreSQL memory and persistent skills.",
-    "icon": "https://railway.app/illustrations/worker.svg",
-    "services": {
-        "nova": {
-            "name": "Nova Bot",
+    "services": [
+        {
+            "name": "nova",
             "source": {
                 "repo": "nova-operations/Nova"
             },
             "variables": {
-                "DATABASE_URL": "${{postgres.DATABASE_URL}}",
-                "TELEGRAM_BOT_TOKEN": "REPLACE_ME",
-                "OPENROUTER_API_KEY": "REPLACE_ME",
-                "GITHUB_TOKEN": "",
-                "GITHUB_REPO": "nova-operations/Nova"
+                "TELEGRAM_BOT_TOKEN": {
+                    "description": "Get from @BotFather on Telegram",
+                    "required": true
+                },
+                "OPENROUTER_API_KEY": {
+                    "description": "Your OpenRouter API Key",
+                    "required": true
+                },
+                "DATABASE_URL": "${{ postgres.DATABASE_URL }}",
+                "GITHUB_REPO": "nova-operations/Nova",
+                "AGENT_MODEL": "google/gemini-2.0-flash-001",
+                "SUBAGENT_MODEL": "google/gemini-2.0-flash-001"
             },
             "deploy": {
                 "numReplicas": 1,
                 "restartPolicy": "ON_FAILURE"
-            },
-            "mountPath": "/app/data"
+            }
         }
-    },
-    "databases": {
-        "postgres": {
-            "name": "nova-db",
-            "plan": "standard"
+    ],
+    "databases": [
+        {
+            "type": "postgres",
+            "name": "nova-db"
         }
-    }
+    ]
 }
