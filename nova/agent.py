@@ -75,16 +75,9 @@ except ImportError:
 load_dotenv()
 setup_logging()
 
-# Global Tool Cache to avoid redundant MCP connections
-_CACHED_TOOLS = None
-
 
 def get_mcp_toolkits():
-    """Builds and returns the list of MCP toolkits (cached)."""
-    global _CACHED_TOOLS
-    if _CACHED_TOOLS is not None:
-        return _CACHED_TOOLS
-
+    """Builds and returns the list of MCP toolkits."""
     toolkits = []
 
     # 1. Standard Agno Docs (Optional)
@@ -145,7 +138,6 @@ def get_mcp_toolkits():
     except Exception as e:
         print(f"⚠️ Warning: Registry error: {e}")
 
-    _CACHED_TOOLS = toolkits
     return toolkits
 
 

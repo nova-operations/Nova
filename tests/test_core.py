@@ -81,9 +81,8 @@ async def test_multi_mcp_initialization(clean_db):
     )
     mcp_registry.register_server("mcp2", "stdio", command="python3", args=["--version"])
 
-    # Clear cache and get toolkits
-    with patch("nova.agent._CACHED_TOOLS", None):
-        toolkits = get_mcp_toolkits()
+    # get toolkits
+    toolkits = get_mcp_toolkits()
 
     # Should have at least the 2 custom ones we just added
     assert len(toolkits) >= 2

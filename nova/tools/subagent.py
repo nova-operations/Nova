@@ -102,7 +102,7 @@ async def create_subagent(
                 db_path = "nova_memory.db"
         db = SqliteDb(db_file=db_path)
 
-    # Give subagents ALL tools
+    # Give subagents DOER tools, avoid giving management tools to prevent recursion
     tools_list = [
         execute_shell_command,
         read_file,
@@ -112,17 +112,27 @@ async def create_subagent(
         create_directory,
         push_to_github,
         pull_latest_changes,
-        create_subagent,
-        list_subagents,
-        get_subagent_result,
-        kill_subagent,
     ]
+
+    # Add MCP tools (Search, etc.)
+    try:
+        from nova.agent import get_mcp_toolkits
+
+        tools_list.extend(get_mcp_toolkits())
+    except ImportError:
+        logging.warning("Could not import get_mcp_toolkits in subagent")
 
     agent = Agent(
         model=model,
         db=db,
-        description=f"Subagent {name}",
-        instructions=instructions,
+        description=f"Subagent {name} - A specialized worker focused on execution.",
+        instructions=[
+            f"You are a specialized subagent named '{name}'.",
+            "Your goal is to execute the specific task assigned to you.",
+            "You have access to shell, filesystem, and specialized MCP tools.",
+            "Focus on DOING the work rather than delegating.",
+            instructions,
+        ],
         tools=tools_list,
         markdown=True,
         add_history_to_context=True,
@@ -173,7 +183,11 @@ def list_subagents() -> str:
 
 
 def get_subagent_result(subagent_id: str) -> str:
-    """Retrieves the result of a completed subagent."""
+    """
+    Retrieves the result of a subagent.
+    If the subagent is still running, it returns the current status.
+    The caller should poll this tool until 'completed' or 'failed' is returned.
+    """
     if subagent_id not in SUBAGENTS:
         return "Error: Subagent not found."
 
