@@ -21,8 +21,3 @@ def setup_logging():
             logger.setLevel(logging.WARNING)
         else:
             logger.setLevel(logging.INFO)
-
-    # Silence noisy telegram polling logs
-    for logger_name in ["telegram", "httpx"]:
-        logger = logging.getLogger(logger_name)
-        logger.setLevel(logging.WARNING)

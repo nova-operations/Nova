@@ -172,12 +172,12 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
     # Initialize MCP Registry and Tools
     try:
         # Standard Agno Docs MCP
-        agent.tools.append(MCPTools(name="agno_docs", transport="streamable-http", url="https://docs.agno.com/mcp"))
+        agent.tools.append(MCPTools(transport="streamable-http", url="https://docs.agno.com/mcp"))
 
         # Load custom MCPs from Postgres/Registry
         registered_servers = mcp_registry.list_servers()
         for s in registered_servers:
-            mcp_kwargs = {"name": s['name'], "transport": s['transport']}
+            mcp_kwargs = {"transport": s['transport']}
             if s['transport'] == "stdio":
                 mcp_kwargs.update({"command": s['command'], "args": s['args'], "env": s['env']})
             elif s['transport'] == "streamable-http":

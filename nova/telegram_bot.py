@@ -58,17 +58,31 @@ async def heartbeat_callback(report: str, records: List[object]):
         return
 
     for chat_id, chat_records in chats_to_update.items():
-        # Generate a specific report for this chat
-        header = f"📊 **Nova Heartbeat Update**\n_{asyncio.get_event_loop().time():.0f}_"
-        lines = [header, ""]
-        for r in chat_records:
-            status_emoji = "🔄" if r.status == "running" else "⏳" if r.status == "starting" else "✅" if r.status == "completed" else "❌"
-            lines.append(f"{status_emoji} **{r.name}**: {r.status}")
-        
-        try:
-            await telegram_bot_instance.send_message(chat_id=chat_id, text="\n".join(lines), parse_mode='Markdown')
-        except Exception as e:
-            logging.error(f"Failed to send heartbeat to {chat_id}: {e}")
+        # Check if any subagents just finished
+        finished_records = [r for r in chat_records if r.status in ["completed", "failed"]]
+        active_records = [r for r in chat_records if r.status in ["running", "starting"]]
+
+        # 1. Send specific completion messages for finished agents
+        for r in finished_records:
+            status_emoji = "✅" if r.status == "completed" else "❌"
+            msg = f"{status_emoji} **{r.name} has finished!**\n\n**Result:**\n{r.result}"
+            try:
+                await telegram_bot_instance.send_message(chat_id=chat_id, text=msg, parse_mode='Markdown')
+            except Exception as e:
+                logging.error(f"Failed to send completion message to {chat_id}: {e}")
+
+        # 2. Send summary report if there are still active agents
+        if active_records:
+            header = f"📊 **Nova Heartbeat Update**"
+            lines = [header, ""]
+            for r in active_records:
+                status_emoji = "🔄" if r.status == "running" else "⏳"
+                lines.append(f"{status_emoji} **{r.name}**: {r.status}")
+            
+            try:
+                await telegram_bot_instance.send_message(chat_id=chat_id, text="\n".join(lines), parse_mode='Markdown')
+            except Exception as e:
+                logging.error(f"Failed to send heartbeat to {chat_id}: {e}")
 
 # Global bot instance for heartbeats
 telegram_bot_instance = None
@@ -110,11 +124,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE):
     """Handles errors in the telegram bot."""
-    if "Conflict: terminated by other getUpdates request" in str(context.error):
+    if context.error and "Conflict: terminated by other getUpdates request" in str(context.error):
         logging.warning("⚠️ Conflict detected: Another instance of this bot is already running. "
                         "If you are testing locally, please stop the container.")
     else:
         logging.error(f"Update {update} caused error {context.error}")
+
+async def post_init(application):
+    """Callback to run after the bot starts and the loop is running."""
+    # Initialize scheduler
+    from nova.tools.scheduler import initialize_scheduler
+    try:
+        initialize_scheduler()
+        print("✅ Scheduler initialized successfully")
+    except Exception as e:
+        print(f"⚠️ Scheduler initialization failed: {e}")
+
+    # Initialize Heartbeat Monitor with Telegram callback
+    monitor = get_heartbeat_monitor()
+    
+    # Wrap the async callback for the monitor
+    def hb_wrapper(report, records):
+        asyncio.create_task(heartbeat_callback(report, records))
+    
+    monitor.register_callback(hb_wrapper)
+    monitor.start()
+    print("💓 Heartbeat Monitor active with Telegram reporting")
 
 if __name__ == '__main__':
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -127,29 +162,10 @@ if __name__ == '__main__':
     if not openrouter_key:
         print("Warning: OPENROUTER_API_KEY not set. Agent commands involving LLM will fail.")
 
-    # Initialize scheduler on startup
-    from nova.tools.scheduler import initialize_scheduler
-    try:
-        initialize_scheduler()
-        print("✅ Scheduler initialized successfully")
-    except Exception as e:
-        print(f"⚠️ Scheduler initialization failed: {e}")
-
-    application = ApplicationBuilder().token(telegram_token).build()
+    application = ApplicationBuilder().token(telegram_token).post_init(post_init).build()
     
     # Set global bot instance for heartbeat callback
     telegram_bot_instance = application.bot
-
-    # Initialize Heartbeat Monitor with Telegram callback
-    monitor = get_heartbeat_monitor()
-    
-    # Wrap the async callback for the monitor
-    def hb_wrapper(report, records):
-        asyncio.create_task(heartbeat_callback(report, records))
-    
-    monitor.register_callback(hb_wrapper)
-    monitor.start()
-    print("💓 Heartbeat Monitor active with Telegram reporting")
     
     # Register error handler
     application.add_error_handler(handle_error)

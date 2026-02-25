@@ -42,6 +42,7 @@ class HeartbeatRecord:
     chat_id: Optional[str] = None
     warning_issued: bool = False
     updates: List[str] = field(default_factory=list)
+    result: Optional[str] = None
 
 
 class HeartbeatMonitor:
@@ -114,6 +115,10 @@ class HeartbeatMonitor:
             if not record.warning_issued:
                 record.warning_issued = True
                 record.updates.append(f"⚠️ Warning: {record.name} running for {elapsed:.0f}s without completion")
+        
+        # Capture result if completed
+        if record.status in ["completed", "failed"]:
+            record.result = data.get("result")
         
         # Add status update
         record.updates.append(f"[{datetime.now().strftime('%H:%M:%S')}] Status: {record.status}")
