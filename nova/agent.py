@@ -1,5 +1,6 @@
 import os
 from typing import Optional
+from datetime import timedelta
 from dotenv import load_dotenv
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
@@ -89,10 +90,9 @@ def get_mcp_toolkits():
     try:
         toolkits.append(
             MCPTools(
-                "agno_docs",
-                server_params=StreamableHTTPClientParams(
-                    url="https://docs.agno.com/mcp", timeout=120
-                ),
+                transport="streamable-http",
+                url="https://docs.agno.com/mcp",
+                timeout_seconds=120,
             )
         )
     except Exception as e:
@@ -114,12 +114,18 @@ def get_mcp_toolkits():
                         args=s["args"],
                         env=s["env"] or os.environ.copy(),
                     )
-                    toolkits.append(MCPTools(name, server_params=params))
+                    toolkits.append(
+                        MCPTools(server_params=params, tool_name_prefix=name)
+                    )
                 else:
                     params = StreamableHTTPClientParams(
-                        url=s["url"], headers=s.get("env"), timeout=120
+                        url=s["url"],
+                        headers=s.get("env"),
+                        timeout=timedelta(seconds=120),
                     )
-                    toolkits.append(MCPTools(name, server_params=params))
+                    toolkits.append(
+                        MCPTools(server_params=params, tool_name_prefix=name)
+                    )
             except Exception as e:
                 print(f"❌ Error setting up MCP server {s.get('name')}: {e}")
     except Exception as e:
