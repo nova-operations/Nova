@@ -44,7 +44,7 @@ from agno.skills import Skills, LocalSkills
 load_dotenv()
 setup_logging()
 
-def get_agent(model_id: Optional[str] = None):
+def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
     """
     Creates and returns a configured Agno Agent (Nova).
     Nova acts as a Project Manager that spawns subagents and provides heartbeats.
@@ -58,6 +58,8 @@ def get_agent(model_id: Optional[str] = None):
         api_key=api_key,
         base_url="https://openrouter.ai/api/v1",
     )
+    
+    chat_id = chat_id or "unknown"
 
     database_url = os.getenv("DATABASE_URL")
     if database_url:
@@ -82,7 +84,8 @@ def get_agent(model_id: Optional[str] = None):
             
             "## OPERATIONAL WORKFLOW:",
             "1. **Analyze & Delegate**: For every user request, analyze the requirements and SPAWN one or more subagents using `create_subagent`.",
-            "2. **Heartbeat Protocol**: While subagents are working, you MUST provide 'Heartbeat Updates' to the user. Do not wait for complete silence.",
+            f"   - IMPORTANT: Always pass `chat_id='{chat_id}'` to `create_subagent` so I can send updates.",
+            "2. **Heartbeat Protocol**: While subagents are working, the system will automatically send updates every 30 seconds to the user.",
             "   - Use `get_heartbeat_status` to get a status report",
             "   - Use `start_heartbeat_monitor` to enable background monitoring",
             "   - New subagents are automatically registered with the heartbeat system",

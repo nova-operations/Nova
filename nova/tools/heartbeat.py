@@ -39,6 +39,7 @@ class HeartbeatRecord:
     status: str
     last_check: float
     start_time: float
+    chat_id: Optional[str] = None
     warning_issued: bool = False
     updates: List[str] = field(default_factory=list)
 
@@ -62,14 +63,15 @@ class HeartbeatMonitor:
         """Add a callback to be called on every heartbeat check."""
         self._callbacks.append(callback)
     
-    def register_subagent(self, subagent_id: str, name: str):
+    def register_subagent(self, subagent_id: str, name: str, chat_id: Optional[str] = None):
         """Register a subagent for heartbeat monitoring."""
         self._records[subagent_id] = HeartbeatRecord(
             subagent_id=subagent_id,
             name=name,
             status="unknown",
             last_check=time.time(),
-            start_time=time.time()
+            start_time=time.time(),
+            chat_id=chat_id
         )
         logger.info(f"Heartbeat: Registered subagent {name} ({subagent_id})")
     
@@ -98,7 +100,8 @@ class HeartbeatMonitor:
                 name=data.get("name", "unknown"),
                 status=data.get("status", "unknown"),
                 last_check=time.time(),
-                start_time=time.time()
+                start_time=time.time(),
+                chat_id=data.get("chat_id")
             )
         
         record = self._records[subagent_id]
@@ -133,10 +136,10 @@ class HeartbeatMonitor:
                 # Generate heartbeat report
                 report = self._generate_report(active_records)
                 
-                # Call all registered callbacks with the report
+                # Call all registered callbacks with the report and the record list
                 for callback in self._callbacks:
                     try:
-                        callback(report)
+                        callback(report, active_records)
                     except Exception as e:
                         logger.error(f"Error in heartbeat callback: {e}")
                 
@@ -369,6 +372,8 @@ def setup_heartbeat_for_task(subagent_ids: List[str], subagent_names: List[str])
     monitor.start()  # Ensure monitor is running
     
     for sid, name in zip(subagent_ids, subagent_names):
-        monitor.register_subagent(sid, name)
+        # We try to get chat_id from SUBAGENTS if not provided
+        chat_id = SUBAGENTS.get(sid, {}).get("chat_id")
+        monitor.register_subagent(sid, name, chat_id=chat_id)
     
     return f"✅ Heartbeat monitoring setup for {len(subagent_ids)} subagents"

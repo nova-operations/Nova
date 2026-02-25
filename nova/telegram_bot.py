@@ -5,6 +5,8 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 from nova.agent import get_agent
 from nova.logger import setup_logging
+from nova.tools.heartbeat import get_heartbeat_monitor
+from nova.tools.subagent import SUBAGENTS
 
 import sys
 
@@ -33,6 +35,43 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text=f"Hello! I am Nova (User ID: {user_id}). I can run commands, manage files, spawn subagents, and manage scheduled tasks. How can I help you?"
     )
 
+async def heartbeat_callback(report: str, records: List[object]):
+    """Callback for heartbeat monitor to send updates to relevant Telegram chats."""
+    if not records:
+        return
+
+    # Group active heartbeat records by chat_id
+    chats_to_update = {}
+    for record in records:
+        if record.chat_id:
+            if record.chat_id not in chats_to_update:
+                chats_to_update[record.chat_id] = []
+            chats_to_update[record.chat_id].append(record)
+
+    if not chats_to_update:
+        return
+
+    # For each chat, send a summary
+    global telegram_bot_instance
+    if not telegram_bot_instance:
+        return
+
+    for chat_id, chat_records in chats_to_update.items():
+        # Generate a specific report for this chat
+        header = f"📊 **Nova Heartbeat Update**\n_{asyncio.get_event_loop().time():.0f}_"
+        lines = [header, ""]
+        for r in chat_records:
+            status_emoji = "🔄" if r.status == "running" else "⏳" if r.status == "starting" else "✅" if r.status == "completed" else "❌"
+            lines.append(f"{status_emoji} **{r.name}**: {r.status}")
+        
+        try:
+            await telegram_bot_instance.send_message(chat_id=chat_id, text="\n".join(lines), parse_mode='Markdown')
+        except Exception as e:
+            logging.error(f"Failed to send heartbeat to {chat_id}: {e}")
+
+# Global bot instance for heartbeats
+telegram_bot_instance = None
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_authorized(user_id):
@@ -48,7 +87,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # We instantiate the agent per message to ensure clean state for the session config if needed,
     # but the underlying tools and DB connections should be handled efficiently.
     # Note: Global state like SUBAGENTS in nova.tools.subagent persists.
-    agent = get_agent()
+    # We instantiate the agent per message to ensure clean state
+    agent = get_agent(chat_id=str(chat_id))
     
     # Send a typing action to indicate processing
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
@@ -95,6 +135,21 @@ if __name__ == '__main__':
         print(f"⚠️ Scheduler initialization failed: {e}")
 
     application = ApplicationBuilder().token(telegram_token).build()
+    
+    # Set global bot instance for heartbeat callback
+    global telegram_bot_instance
+    telegram_bot_instance = application.bot
+
+    # Initialize Heartbeat Monitor with Telegram callback
+    monitor = get_heartbeat_monitor()
+    
+    # Wrap the async callback for the monitor
+    def hb_wrapper(report, records):
+        asyncio.create_task(heartbeat_callback(report, records))
+    
+    monitor.register_callback(hb_wrapper)
+    monitor.start()
+    print("💓 Heartbeat Monitor active with Telegram reporting")
     
     # Register error handler
     application.add_error_handler(handle_error)

@@ -43,7 +43,7 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
         logging.error(f"Subagent {subagent_id} failed: {e}")
 
 # Changed to async def to ensure we are in a valid async context
-async def create_subagent(name: str, instructions: str, task: str) -> str:
+async def create_subagent(name: str, instructions: str, task: str, chat_id: Optional[str] = None) -> str:
     """
     Creates and starts a subagent in the background.
     
@@ -51,6 +51,7 @@ async def create_subagent(name: str, instructions: str, task: str) -> str:
         name: A name for the subagent.
         instructions: Instructions for the subagent's persona/behavior.
         task: The specific task or question for the subagent to process.
+        chat_id: The Telegram Chat ID to send heartbeat updates to.
         
     Returns:
         The ID of the created subagent.
@@ -128,7 +129,8 @@ async def create_subagent(name: str, instructions: str, task: str) -> str:
         "agent": agent,
         "status": "starting",
         "result": None,
-        "instruction": task
+        "instruction": task,
+        "chat_id": chat_id
     }
     
     # Automatically register with heartbeat monitoring
