@@ -37,6 +37,8 @@ from nova.tools.heartbeat import (
 )
 from nova.tools.mcp_registry import mcp_registry
 from nova.tools.mcp_tools import add_mcp_server, remove_mcp_server, list_registered_mcp_servers
+from nova.tools.specialist_registry import save_specialist_config, list_specialists
+from nova.tools.team_manager import run_team_task
 from nova.logger import setup_logging
 try:
     from agno.tools.mcp import MCPTools, StdioServerParameters, StreamableHTTPClientParams
@@ -131,9 +133,16 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
             "- `run_scheduled_task_now`: Trigger a task manually",
             "- `get_scheduler_status`: Check scheduler health",
 
+            "## DYNAMIC TEAM ORCHESTRATION:",
+            "- You have a PRODUCTION-READY registry for specialists. Use it to build reusable expertise.",
+            "- `save_specialist_config`: Register a new specialist (e.g. 'SecurityAudit', 'FrontendDev'). This survives reboots.",
+            "- `list_specialists`: See what experts you already have in your roster.",
+            "- `run_team_task`: The HIGHEST form of delegation. Spawn a collaborative team of specialists to solve a task.",
+            "   - E.g. `run_team_task('WebsiteBuild', ['Coder', 'Researcher'], 'Build a portfolio site')`",
+
             "## COLLABORATION:",
             "- Always treat subagents as your team members. Provide them with clear, detailed instructions.",
-            "- If a subagent fails, analyze the error and either retry or spawn a different specialist."
+            "- Use the Specialist Registry for complex, recurring roles. Use `create_subagent` for simple, one-off tasks."
         ],
         skills=Skills(loaders=[
             LocalSkills(repo_skills_path),
@@ -175,7 +184,11 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
             run_scheduled_task_now,
             get_scheduler_status,
             start_scheduler,
-            stop_scheduler
+            stop_scheduler,
+            # Dynamic Team & Specialist tools
+            save_specialist_config,
+            list_specialists,
+            run_team_task
         ],
         markdown=True,
         add_history_to_context=True,

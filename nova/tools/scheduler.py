@@ -45,6 +45,7 @@ class TaskType(str, enum.Enum):
     """Task type enumeration."""
     STANDALONE_SH = "standalone_sh"
     SUBAGENT_RECALL = "subagent_recall"
+    TEAM_TASK = "team_task"
     SILENT = "silent"
 
 
@@ -60,6 +61,7 @@ class ScheduledTask(Base):
     subagent_name = Column(String(255), nullable=True)  # Name for subagent
     subagent_instructions = Column(Text, nullable=True)  # System instructions for subagent
     subagent_task = Column(Text, nullable=True)  # Task prompt for subagent
+    team_members = Column(JSON, nullable=True)  # List of specialist names for TEAM_TASK
     status = Column(Enum(TaskStatus), default=TaskStatus.ACTIVE)
     notification_enabled = Column(Boolean, default=True)
     last_run = Column(DateTime, nullable=True)
@@ -245,6 +247,38 @@ async def _execute_subagent_recall(
         return "failure", str(e)
 
 
+async def _execute_team_task(
+    job_id: int,
+    task_name: str,
+    specialist_names: List[str],
+    task_description: str,
+    notification_enabled: bool
+):
+    """Execute a team task recall."""
+    logger.info(f"Executing scheduled team task: {task_name}")
+    
+    try:
+        from nova.team_manager import run_team_task
+        
+        result = await run_team_task(
+            task_name=task_name,
+            specialist_names=specialist_names,
+            task_description=task_description
+        )
+        
+        if result.startswith("❌"):
+            return "failure", result
+            
+        if notification_enabled:
+            notification_msg = f"👥 Team Task '{task_name}' ({len(specialist_names)} agents) triggered by schedule (ID: {job_id})"
+            await _send_telegram_notification(notification_msg)
+            
+        return "success", result
+    except Exception as e:
+        logger.error(f"Failed to execute team task: {e}")
+        return "failure", str(e)
+
+
 async def _execute_silent_task(job_id: int):
     """Execute a silent task (no output/notification)."""
     logger.info(f"Executing silent task: {job_id}")
@@ -296,6 +330,19 @@ async def _job_executor(job):
                 task.notification_enabled
             )
         
+        elif task.task_type == TaskType.TEAM_TASK:
+            if not task.team_members or not task.subagent_task:
+                logger.error(f"Missing members or task for team_task: {job_id}")
+                return
+            
+            status, output = await _execute_team_task(
+                job_id,
+                task.task_name,
+                task.team_members,
+                task.subagent_task,
+                task.notification_enabled
+            )
+        
         elif task.task_type == TaskType.SILENT:
             status, output = await _execute_silent_task(job_id)
         
@@ -343,6 +390,7 @@ def add_scheduled_task(
     subagent_name: Optional[str] = None,
     subagent_instructions: Optional[str] = None,
     subagent_task: Optional[str] = None,
+    team_members: Optional[List[str]] = None,
     notification_enabled: bool = True
 ) -> str:
     """
@@ -366,7 +414,7 @@ def add_scheduled_task(
         return f"Error: Invalid cron expression: {schedule}"
     
     # Validate task type
-    valid_types = ["standalone_sh", "subagent_recall", "silent"]
+    valid_types = ["standalone_sh", "subagent_recall", "team_task", "silent"]
     if task_type not in valid_types:
         return f"Error: Invalid task_type. Must be one of: {valid_types}"
     
@@ -397,6 +445,7 @@ def add_scheduled_task(
             subagent_name=subagent_name,
             subagent_instructions=subagent_instructions,
             subagent_task=subagent_task,
+            team_members=team_members,
             status=TaskStatus.ACTIVE,
             notification_enabled=notification_enabled
         )
