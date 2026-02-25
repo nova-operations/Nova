@@ -17,7 +17,10 @@ def setup_logging():
     for logger_name in ["nova", "agno"]:
         logger = logging.getLogger(logger_name)
         logger.propagate = True
-        logger.setLevel(logging.INFO)
+        if logger_name in ["telegram", "httpx"]:
+            logger.setLevel(logging.WARNING)
+        else:
+            logger.setLevel(logging.INFO)
 
     # Silence noisy telegram polling logs
     for logger_name in ["telegram", "httpx"]:
