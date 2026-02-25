@@ -120,6 +120,7 @@ def get_mcp_toolkits():
                             )
                             toolkits.append(
                                 MCPTools(
+                                    transport="stdio",
                                     server_params=params,
                                     timeout_seconds=30,
                                 )
@@ -133,6 +134,7 @@ def get_mcp_toolkits():
                             )
                             toolkits.append(
                                 MCPTools(
+                                    transport="streamable-http",
                                     server_params=params,
                                     timeout_seconds=30,
                                 )
