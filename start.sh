@@ -53,5 +53,5 @@ fi
 # Run the bot
 echo "🤖 Launching Nova Bot..."
 # We use python -m nova.telegram_bot but we must be sure the parent dir of nova package is in PYTHONPATH
-export PYTHONPATH=$PYTHONPATH:$(pwd)
+export PYTHONPATH=$(pwd):$PYTHONPATH
 python -m nova.telegram_bot

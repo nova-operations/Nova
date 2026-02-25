@@ -16,34 +16,39 @@ def push_to_github(commit_message: str, branch: str = "main", files: Optional[Li
     Returns:
         A status message indicating success or failure.
     """
+    # Prioritize the persistent repo path
+    repo_dir = "/app/data/nova_repo"
+    if not os.path.exists(repo_dir):
+        repo_dir = os.getcwd() # Fallback
+    
     try:
-        # Check if git is configured
-        # We need to set user email and name if not set
-        subprocess.run(["git", "config", "--global", "user.email", "nova@agent.ai"], check=False)
-        subprocess.run(["git", "config", "--global", "user.name", "Nova Agent"], check=False)
+        # Check if directory exists and is a git repo
+        if not os.path.exists(os.path.join(repo_dir, ".git")):
+            return f"Error: {repo_dir} is not a Git repository. Agent cannot push code."
+
+        # Configure git identity
+        subprocess.run(["git", "config", "user.email", "nova@agent.ai"], cwd=repo_dir, check=False)
+        subprocess.run(["git", "config", "user.name", "Nova Agent"], cwd=repo_dir, check=False)
         
         # Add files
         if files:
             for file in files:
-                subprocess.run(["git", "add", file], check=True)
+                subprocess.run(["git", "add", file], cwd=repo_dir, check=True)
         else:
-            subprocess.run(["git", "add", "."], check=True)
+            subprocess.run(["git", "add", "."], cwd=repo_dir, check=True)
             
         # Commit
-        subprocess.run(["git", "commit", "-m", commit_message], check=True)
+        subprocess.run(["git", "commit", "-m", commit_message], cwd=repo_dir, check=True)
         
-        # Push
-        # We assume the remote 'origin' is set up with the correct authentication token
-        # Or we can construct the URL with the token if provided in env
+        # Push 
         github_token = os.getenv("GITHUB_TOKEN")
-        github_repo = os.getenv("GITHUB_REPO") # e.g. "username/repo"
+        github_repo = os.getenv("GITHUB_REPO")
         
         if github_token and github_repo:
             remote_url = f"https://{github_token}@github.com/{github_repo}.git"
-            # Update remote URL to include token
-            subprocess.run(["git", "remote", "set-url", "origin", remote_url], check=True)
+            subprocess.run(["git", "remote", "set-url", "origin", remote_url], cwd=repo_dir, check=True)
             
-        result = subprocess.run(["git", "push", "origin", branch], capture_output=True, text=True)
+        result = subprocess.run(["git", "push", "origin", branch], cwd=repo_dir, capture_output=True, text=True)
         
         if result.returncode == 0:
             return f"Successfully pushed changes to {branch}. Deployment should start shortly."
@@ -57,8 +62,12 @@ def push_to_github(commit_message: str, branch: str = "main", files: Optional[Li
 
 def pull_latest_changes(branch: str = "main") -> str:
     """Pulls the latest changes from the remote repository."""
+    repo_dir = "/app/data/nova_repo"
+    if not os.path.exists(repo_dir):
+        repo_dir = os.getcwd()
+        
     try:
-        result = subprocess.run(["git", "pull", "origin", branch], capture_output=True, text=True)
+        result = subprocess.run(["git", "pull", "origin", branch], cwd=repo_dir, capture_output=True, text=True)
         if result.returncode == 0:
             return f"Successfully pulled latest changes from {branch}."
         else:

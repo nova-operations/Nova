@@ -9,8 +9,10 @@ from nova.tools.shell import execute_shell_command
 from nova.tools.filesystem import read_file, write_file, list_files, delete_file, create_directory
 from nova.tools.subagent import create_subagent, list_subagents, get_subagent_result, kill_subagent
 from nova.tools.github_tools import push_to_github, pull_latest_changes
+from nova.logger import setup_logging
 
 load_dotenv()
+setup_logging()
 
 def get_agent(model_id: Optional[str] = None):
     """

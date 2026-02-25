@@ -4,15 +4,11 @@ import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 from nova.agent import get_agent
+from nova.logger import setup_logging
 
 import sys
 
-# Enable logging and route to stdout to avoid "red logs" in Railway
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
-    stream=sys.stdout
-)
+setup_logging()
 
 def is_authorized(user_id: int) -> bool:
     """Checks if the user is in the authorized whitelist."""
@@ -71,6 +67,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"Error running agent: {e}")
         await context.bot.send_message(chat_id=chat_id, text=f"Error: {e}")
 
+async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Handles errors in the telegram bot."""
+    if "Conflict: terminated by other getUpdates request" in str(context.error):
+        logging.warning("⚠️ Conflict detected: Another instance of this bot is already running. "
+                        "If you are testing locally, please stop the container.")
+    else:
+        logging.error(f"Update {update} caused error {context.error}")
+
 if __name__ == '__main__':
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
@@ -83,6 +87,9 @@ if __name__ == '__main__':
         print("Warning: OPENROUTER_API_KEY not set. Agent commands involving LLM will fail.")
 
     application = ApplicationBuilder().token(telegram_token).build()
+    
+    # Register error handler
+    application.add_error_handler(handle_error)
     
     start_handler = CommandHandler('start', start)
     message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message)
