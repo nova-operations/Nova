@@ -38,7 +38,12 @@ from nova.tools.heartbeat import (
 from nova.tools.mcp_registry import mcp_registry
 from nova.tools.mcp_tools import add_mcp_server, remove_mcp_server, list_registered_mcp_servers
 from nova.logger import setup_logging
-from agno.tools.mcp import MCPTools
+try:
+    from agno.tools.mcp import MCPTools, StdioServerParameters, StreamableHTTPClientParams
+except ImportError:
+    from agno.tools.mcp import MCPTools
+    StdioServerParameters = None
+    StreamableHTTPClientParams = None
 from agno.skills import Skills, LocalSkills
 
 load_dotenv()
@@ -91,6 +96,15 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
             "   - New subagents are automatically registered with the heartbeat system",
             "3. **Monitor Progress**: Use `list_subagents`, `get_subagent_result`, and `get_heartbeat_status` to track the state of your team.",
             "4. **Synthesis**: Once subagents complete their tasks, gather their outputs and provide a final synthesized response to the user.",
+
+            "## CRITICAL RULE: DELEGATION ONLY",
+            "You are a HIGH-LEVEL STRATEGIST. Do NOT perform research, file modifications, or shell commands yourself.",
+            "For every user request, your workflow MUST be:",
+            "1. Analyze the request and DESIGN a specialist agent.",
+            "2. SPAWN the subagent using `create_subagent`.",
+            "3. WAIT for completion (monitor via heartbeats).",
+            "4. COLLECT results with `get_subagent_result` and provide SYNTHESIS.",
+            "Violating this rule by doing work yourself is a failure of your instructions."
 
             "## HEARTBEAT SYSTEM:",
             "The heartbeat system automatically monitors subagents in the background:",
@@ -172,20 +186,36 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
     # Initialize MCP Registry and Tools
     try:
         # Standard Agno Docs MCP
-        agent.tools.append(MCPTools(transport="streamable-http", url="https://docs.agno.com/mcp"))
+        if StreamableHTTPClientParams:
+            agent.tools.append(MCPTools(server_params=StreamableHTTPClientParams(url="https://docs.agno.com/mcp")))
+        else:
+            agent.tools.append(MCPTools(url="https://docs.agno.com/mcp"))
 
         # Load custom MCPs from Postgres/Registry
         registered_servers = mcp_registry.list_servers()
         for s in registered_servers:
-            mcp_kwargs = {"transport": s['transport']}
             if s['transport'] == "stdio":
-                mcp_kwargs.update({"command": s['command'], "args": s['args'], "env": s['env']})
+                if StdioServerParameters:
+                    server_params = StdioServerParameters(
+                        command=s['command'],
+                        args=s['args'],
+                        env=s['env'] or os.environ.copy()
+                    )
+                    agent.tools.append(MCPTools(server_params=server_params))
+                else:
+                    cmd = s['command']
+                    if s.get('args'):
+                        cmd += " " + " ".join(s['args'])
+                    agent.tools.append(MCPTools(command=cmd, env=s.get('env')))
             elif s['transport'] == "streamable-http":
-                mcp_kwargs["url"] = s['url']
-                # Include headers if they represent auth
-                if s.get('env'): mcp_kwargs['env'] = s['env']
-            
-            agent.tools.append(MCPTools(**mcp_kwargs))
+                if StreamableHTTPClientParams:
+                    server_params = StreamableHTTPClientParams(
+                        url=s['url'],
+                        headers=s.get('env')
+                    )
+                    agent.tools.append(MCPTools(server_params=server_params))
+                else:
+                    agent.tools.append(MCPTools(url=s['url']))
     except Exception as e:
         print(f"Error loading MCP tools: {e}")
     

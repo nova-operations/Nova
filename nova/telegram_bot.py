@@ -102,13 +102,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # We instantiate the agent per message to ensure clean state for the session config if needed,
     # but the underlying tools and DB connections should be handled efficiently.
     # Note: Global state like SUBAGENTS in nova.tools.subagent persists.
-    # We instantiate the agent per message to ensure clean state
-    agent = get_agent(chat_id=str(chat_id))
-    
     # Send a typing action to indicate processing
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
     
     try:
+        # We instantiate the agent inside the try block to catch initialization errors (like MCP issues)
+        agent = get_agent(chat_id=str(chat_id))
+        
         # Run the agent asynchronously
         response = await agent.arun(user_message, session_id=session_id)
         
