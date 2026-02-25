@@ -258,7 +258,7 @@ async def _execute_team_task(
     logger.info(f"Executing scheduled team task: {task_name}")
     
     try:
-        from nova.team_manager import run_team_task
+        from nova.tools.team_manager import run_team_task
         
         result = await run_team_task(
             task_name=task_name,
