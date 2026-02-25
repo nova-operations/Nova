@@ -100,19 +100,27 @@ def init_db():
     engine = get_db_engine()
     Base.metadata.create_all(engine)
     
+    # Also ensure specialist registry table is created (sharing engine)
+    try:
+        from nova.tools.specialist_registry import Base as SpecialistBase
+        SpecialistBase.metadata.create_all(engine)
+    except Exception as e:
+        logger.warning(f"Could not initialize specialist registry tables: {e}")
+    
     # Manual migration for team_members column if it doesn't exist
-    from sqlalchemy import text
-    with engine.connect() as conn:
-        try:
-            # Check if column exists
-            result = conn.execute(text("SELECT team_members FROM scheduled_tasks LIMIT 1"))
-            result.fetchone()
-        except Exception:
-            # Column likely missing, attempt to add it
+    from sqlalchemy import inspect, text
+    inspector = inspect(engine)
+    
+    # Safer check using inspector
+    columns = [c['name'] for c in inspector.get_columns('scheduled_tasks')]
+    if 'team_members' not in columns:
+        logger.info("Adding team_members column to scheduled_tasks table...")
+        with engine.begin() as conn:  # engine.begin() handles transaction start/commit
             try:
-                logger.info("Adding team_members column to scheduled_tasks table...")
-                conn.execute(text("ALTER TABLE scheduled_tasks ADD COLUMN team_members JSON"))
-                conn.commit()
+                # Use JSONB for Postgres if possible, fallback to JSON
+                col_type = "JSONB" if "postgresql" in str(engine.url) else "JSON"
+                conn.execute(text(f"ALTER TABLE scheduled_tasks ADD COLUMN team_members {col_type}"))
+                logger.info("✅ Successfully added team_members column.")
             except Exception as e:
                 logger.error(f"Failed to add team_members column: {e}")
     

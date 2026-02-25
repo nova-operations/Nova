@@ -45,44 +45,57 @@ async def heartbeat_callback(report: str, records: List[object]):
     chats_to_update = {}
     for record in records:
         if record.chat_id:
-            if record.chat_id not in chats_to_update:
-                chats_to_update[record.chat_id] = []
-            chats_to_update[record.chat_id].append(record)
+            try:
+                cid = int(record.chat_id)
+                if cid not in chats_to_update:
+                    chats_to_update[cid] = []
+                chats_to_update[cid].append(record)
+            except (ValueError, TypeError):
+                continue
 
     if not chats_to_update:
         return
 
-    # For each chat, send a summary
     global telegram_bot_instance
     if not telegram_bot_instance:
         return
 
     for chat_id, chat_records in chats_to_update.items():
-        # Check if any subagents just finished
         finished_records = [r for r in chat_records if r.status in ["completed", "failed"]]
         active_records = [r for r in chat_records if r.status in ["running", "starting"]]
 
-        # 1. Send specific completion messages for finished agents
         for r in finished_records:
             status_emoji = "✅" if r.status == "completed" else "❌"
-            msg = f"{status_emoji} **{r.name} has finished!**\n\n**Result:**\n{r.result}"
+            # Use HTML and escape result for resilience
+            from html import escape
+            clean_result = escape(str(r.result))
+            msg = f"{status_emoji} <b>{escape(r.name)} has finished!</b>\n\n<b>Result:</b>\n{clean_result}"
             try:
-                await telegram_bot_instance.send_message(chat_id=chat_id, text=msg, parse_mode='Markdown')
+                await telegram_bot_instance.send_message(chat_id=chat_id, text=msg, parse_mode='HTML')
             except Exception as e:
                 logging.error(f"Failed to send completion message to {chat_id}: {e}")
 
-        # 2. Send summary report if there are still active agents
         if active_records:
-            header = f"📊 **Nova Heartbeat Update**"
+            header = f"📊 <b>Nova Team Heartbeat Update</b>"
             lines = [header, ""]
             for r in active_records:
                 status_emoji = "🔄" if r.status == "running" else "⏳"
-                lines.append(f"{status_emoji} **{r.name}**: {r.status}")
+                lines.append(f"{status_emoji} <b>{escape(r.name)}</b>: {r.status}")
             
             try:
-                await telegram_bot_instance.send_message(chat_id=chat_id, text="\n".join(lines), parse_mode='Markdown')
+                await telegram_bot_instance.send_message(chat_id=chat_id, text="\n".join(lines), parse_mode='HTML')
             except Exception as e:
                 logging.error(f"Failed to send heartbeat to {chat_id}: {e}")
+
+async def notify_user(chat_id: str, message: str):
+    """Proactively send a message to a user."""
+    global telegram_bot_instance
+    if not telegram_bot_instance:
+        return
+    try:
+        await telegram_bot_instance.send_message(chat_id=int(chat_id), text=message, parse_mode='HTML')
+    except Exception as e:
+        logging.error(f"Failed proactive notification to {chat_id}: {e}")
 
 # Global bot instance for heartbeats
 telegram_bot_instance = None

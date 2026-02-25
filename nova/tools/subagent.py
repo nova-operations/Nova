@@ -137,6 +137,11 @@ async def create_subagent(name: str, instructions: str, task: str, chat_id: Opti
     heartbeat_msg = auto_register_with_heartbeat(subagent_id, name, chat_id=chat_id)
     logging.info(f"Heartbeat registration: {heartbeat_msg}")
     
+    # Proactive notification
+    if chat_id:
+        from nova.telegram_bot import notify_user
+        asyncio.create_task(notify_user(chat_id, f"🚀 <b>Starting Subagent:</b> {name}"))
+    
     return f"Subagent '{name}' created with ID: {subagent_id}\n{heartbeat_msg}"
 
 def list_subagents() -> str:

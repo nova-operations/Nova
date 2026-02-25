@@ -138,7 +138,8 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
             "- `save_specialist_config`: Register a new specialist (e.g. 'SecurityAudit', 'FrontendDev'). This survives reboots.",
             "- `list_specialists`: See what experts you already have in your roster.",
             "- `run_team_task`: The HIGHEST form of delegation. Spawn a collaborative team of specialists to solve a task.",
-            "   - E.g. `run_team_task('WebsiteBuild', ['Coder', 'Researcher'], 'Build a portfolio site')`",
+            f"   - ALWAYS pass `chat_id='{chat_id}'` so the team can report results.",
+            f"   - E.g. `run_team_task(task_name='WebsiteBuild', specialist_names=['Coder', 'Researcher'], task_description='Build a site', chat_id='{chat_id}')`",
 
             "## COLLABORATION:",
             "- Always treat subagents as your team members. Provide them with clear, detailed instructions.",

@@ -105,6 +105,10 @@ async def run_team_task(
                 SUBAGENTS[subagent_id]["status"] = "failed"
                 SUBAGENTS[subagent_id]["result"] = f"Error: {str(e)}"
 
+        if chat_id:
+            from nova.telegram_bot import notify_user
+            asyncio.create_task(notify_user(chat_id, f"👥 <b>Starting Team Task:</b> {task_name} ({len(members)} specialists)"))
+
         asyncio.create_task(_team_runner())
         
         return f"🚀 Team task '{task_name}' started with {len(members)} specialists. ID: {subagent_id}"
