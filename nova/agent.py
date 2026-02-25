@@ -24,6 +24,17 @@ from nova.tools.scheduler import (
     start_scheduler,
     stop_scheduler
 )
+# Import heartbeat tools
+from nova.tools.heartbeat import (
+    start_heartbeat_monitor,
+    stop_heartbeat_monitor,
+    register_subagent_for_heartbeat,
+    unregister_subagent_from_heartbeat,
+    get_heartbeat_status,
+    get_heartbeat_detailed_status,
+    auto_register_active_subagents,
+    get_heartbeat_monitor
+)
 from nova.tools.mcp_registry import mcp_registry
 from nova.tools.mcp_tools import add_mcp_server, remove_mcp_server, list_registered_mcp_servers
 from nova.logger import setup_logging
@@ -72,8 +83,19 @@ def get_agent(model_id: Optional[str] = None):
             "## OPERATIONAL WORKFLOW:",
             "1. **Analyze & Delegate**: For every user request, analyze the requirements and SPAWN one or more subagents using `create_subagent`.",
             "2. **Heartbeat Protocol**: While subagents are working, you MUST provide 'Heartbeat Updates' to the user. Do not wait for complete silence.",
-            "3. **Monitor Progress**: Use `list_subagents` and `get_subagent_result` to track the state of your team.",
+            "   - Use `get_heartbeat_status` to get a status report",
+            "   - Use `start_heartbeat_monitor` to enable background monitoring",
+            "   - New subagents are automatically registered with the heartbeat system",
+            "3. **Monitor Progress**: Use `list_subagents`, `get_subagent_result`, and `get_heartbeat_status` to track the state of your team.",
             "4. **Synthesis**: Once subagents complete their tasks, gather their outputs and provide a final synthesized response to the user.",
+
+            "## HEARTBEAT SYSTEM:",
+            "The heartbeat system automatically monitors subagents in the background:",
+            "- `start_heartbeat_monitor(30)`: Start background monitoring (check every 30 seconds)",
+            "- `get_heartbeat_status()`: Get a formatted status report of all active subagents",
+            "- `get_heartbeat_detailed_status()`: Get detailed JSON status",
+            "- Subagents are automatically registered when created",
+            "- The system warns if a subagent runs for >2 minutes without completing",
 
             "## TOOLS & SKILLS:",
             "- You have full access to the filesystem and shell.",
@@ -113,6 +135,15 @@ def get_agent(model_id: Optional[str] = None):
             kill_subagent,
             push_to_github,
             pull_latest_changes,
+            # Heartbeat tools
+            start_heartbeat_monitor,
+            stop_heartbeat_monitor,
+            register_subagent_for_heartbeat,
+            unregister_subagent_from_heartbeat,
+            get_heartbeat_status,
+            get_heartbeat_detailed_status,
+            auto_register_active_subagents,
+            # MCP tools
             add_mcp_server,
             remove_mcp_server,
             list_registered_mcp_servers,

@@ -14,6 +14,9 @@ from nova.tools.shell import execute_shell_command
 from nova.tools.filesystem import read_file, write_file, list_files, delete_file, create_directory
 from nova.tools.github_tools import push_to_github, pull_latest_changes
 
+# Import heartbeat integration
+from nova.tools.heartbeat_integration import auto_register_with_heartbeat
+
 load_dotenv()
 
 # Global dictionary to store running subagents
@@ -128,7 +131,11 @@ async def create_subagent(name: str, instructions: str, task: str) -> str:
         "instruction": task
     }
     
-    return f"Subagent '{name}' created with ID: {subagent_id}"
+    # Automatically register with heartbeat monitoring
+    heartbeat_msg = auto_register_with_heartbeat(subagent_id, name)
+    logging.info(f"Heartbeat registration: {heartbeat_msg}")
+    
+    return f"Subagent '{name}' created with ID: {subagent_id}\n{heartbeat_msg}"
 
 def list_subagents() -> str:
     """Lists all managed subagents and their status."""
