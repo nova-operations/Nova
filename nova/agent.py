@@ -46,11 +46,18 @@ def get_agent(model_id: Optional[str] = None):
             db_path = "nova_memory.db"
         db = SqliteDb(db_file=db_path)
 
-    # Define persistent skills directory
-    skills_path = "/app/data/skills"
+    # Define skills directory
+    # We prioritize the repo's skills folder so pushed skills are available
+    repo_skills_path = "/app/data/nova_repo/skills"
+    persistent_skills_path = "/app/data/skills"
+    
+    # Fallback for local testing
     if not os.path.exists("/app/data"):
-        skills_path = os.path.join(os.getcwd(), "skills")
-    os.makedirs(skills_path, exist_ok=True)
+        repo_skills_path = os.path.join(os.getcwd(), "skills")
+        persistent_skills_path = os.path.join(os.getcwd(), "persistent_skills")
+
+    os.makedirs(repo_skills_path, exist_ok=True)
+    os.makedirs(persistent_skills_path, exist_ok=True)
 
     agent = Agent(
         model=model,
@@ -62,7 +69,8 @@ def get_agent(model_id: Optional[str] = None):
             "You can execute shell commands and modify files.",
             "Your workspace is in `/app/data/nova_repo`. This is where your source code is mirrored and where you should make changes.",
             "You have access to the Agno MCP Server (`agno_docs`) which provides documentation and tools for the Agno framework. Always use it to look up the best ways to implement/improve your logic.",
-            f"Your skills are stored in: {skills_path}. You can create new skills by creating subdirectories here with a `SKILL.md` file.",
+            f"Your skills are located in: {repo_skills_path} (repository skills) and {persistent_skills_path} (runtime skills).",
+            "You can create new skills by creating subdirectories here with a `SKILL.md` file.",
             "Each skill directory should contain:",
             "  1. `SKILL.md`: Instructions with YAML frontmatter (name, description).",
             "  2. `scripts/`: Python scripts or other tools.",
@@ -72,7 +80,10 @@ def get_agent(model_id: Optional[str] = None):
             "Always be careful when modifying your own code. Test your changes locally using `python smoke_test.py` before pushing.",
             "If you are asked to improve yourself, analyze the codebase in `/app/data/nova_repo`, make necessary changes, and push them."
         ],
-        skills=Skills(loaders=[LocalSkills(skills_path)]),
+        skills=Skills(loaders=[
+            LocalSkills(repo_skills_path),
+            LocalSkills(persistent_skills_path)
+        ]),
         tools=[
             execute_shell_command,
             read_file,
