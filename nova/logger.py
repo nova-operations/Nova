@@ -14,7 +14,7 @@ def setup_logging():
     )
 
     # Force common libraries to follow our lead
-    for logger_name in ["nova", "agno"]:
+    for logger_name in ["nova", "agno", "telegram", "httpx"]:
         logger = logging.getLogger(logger_name)
         logger.propagate = True
         if logger_name in ["telegram", "httpx"]:
