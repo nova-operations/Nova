@@ -134,7 +134,7 @@ async def create_subagent(name: str, instructions: str, task: str, chat_id: Opti
     }
     
     # Automatically register with heartbeat monitoring
-    heartbeat_msg = auto_register_with_heartbeat(subagent_id, name)
+    heartbeat_msg = auto_register_with_heartbeat(subagent_id, name, chat_id=chat_id)
     logging.info(f"Heartbeat registration: {heartbeat_msg}")
     
     return f"Subagent '{name}' created with ID: {subagent_id}\n{heartbeat_msg}"

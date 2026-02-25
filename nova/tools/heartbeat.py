@@ -278,19 +278,20 @@ def stop_heartbeat_monitor() -> str:
     return "🛑 Heartbeat Monitor stop requested (will stop on next check)"
 
 
-def register_subagent_for_heartbeat(subagent_id: str, name: str) -> str:
+def register_subagent_for_heartbeat(subagent_id: str, name: str, chat_id: Optional[str] = None) -> str:
     """
     Register a subagent to be monitored by the heartbeat system.
     
     Args:
         subagent_id: The ID of the subagent to monitor
         name: The name of the subagent
+        chat_id: The Telegram Chat ID to send updates to (optional)
         
     Returns:
         Confirmation message
     """
     monitor = get_heartbeat_monitor()
-    monitor.register_subagent(subagent_id, name)
+    monitor.register_subagent(subagent_id, name, chat_id=chat_id)
     return f"✅ Subagent '{name}' ({subagent_id}) registered for heartbeat monitoring"
 
 

@@ -25,7 +25,7 @@ def _get_heartbeat():
     return _heartbeat_module
 
 
-def auto_register_with_heartbeat(subagent_id: str, name: str) -> str:
+def auto_register_with_heartbeat(subagent_id: str, name: str, chat_id: Optional[str] = None) -> str:
     """
     Automatically register a newly created subagent with the heartbeat monitor.
     
@@ -35,6 +35,7 @@ def auto_register_with_heartbeat(subagent_id: str, name: str) -> str:
     Args:
         subagent_id: The ID of the created subagent
         name: The name of the subagent
+        chat_id: The Telegram Chat ID to send updates to (optional)
         
     Returns:
         Confirmation or error message
@@ -44,7 +45,7 @@ def auto_register_with_heartbeat(subagent_id: str, name: str) -> str:
         return "Heartbeat module not available"
     
     try:
-        return heartbeat.register_subagent_for_heartbeat(subagent_id, name)
+        return heartbeat.register_subagent_for_heartbeat(subagent_id, name, chat_id=chat_id)
     except Exception as e:
         logger.error(f"Error registering subagent with heartbeat: {e}")
         return f"Subagent created but heartbeat registration failed: {e}"
