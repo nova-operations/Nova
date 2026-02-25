@@ -26,7 +26,7 @@ from nova.long_message_handler import (
     is_message_too_long,
     create_pdf_from_text,
     process_long_message,
-    TELEGRAM_MAX_LENGTH
+    TELEGRAM_MAX_LENGTH,
 )
 
 # Import context optimizer for token management
@@ -35,7 +35,7 @@ from nova.tools.context_optimizer import (
     optimize_search_results,
     get_context_optimizer,
     CHAR_LIMIT_HIGH,
-    CHAR_LIMIT_EMERGENCY
+    CHAR_LIMIT_EMERGENCY,
 )
 
 # Import streaming utilities for real-time updates
@@ -44,7 +44,7 @@ from nova.tools.streaming_utils import (
     send_streaming_progress,
     send_streaming_complete,
     send_streaming_error,
-    StreamingContext
+    StreamingContext,
 )
 
 load_dotenv()
@@ -59,16 +59,17 @@ _telegram_bot_instance = None
 def get_telegram_bot():
     """Get the Telegram bot instance, trying multiple sources."""
     global _telegram_bot_instance
-    
+
     # First, try to get from telegram_bot module
     try:
         from nova.telegram_bot import telegram_bot_instance
+
         if telegram_bot_instance:
             _telegram_bot_instance = telegram_bot_instance
             return telegram_bot_instance
     except ImportError:
         pass
-    
+
     # Return cached instance if available
     return _telegram_bot_instance
 
@@ -82,16 +83,18 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     if not subagent_data:
         logging.error(f"Subagent {subagent_id} not found in SUBAGENTS dict")
         return
-    
+
     name = subagent_data.get("name", "Unknown")
     chat_id = subagent_data.get("chat_id")
-    
+
     # Create streaming context for SAU live updates
     async with StreamingContext(chat_id, name, auto_complete=False) as stream:
         try:
             SUBAGENTS[subagent_id]["status"] = "running"
             await stream.send("Initializing agent and processing task...")
-            logging.info(f"Subagent {subagent_id} started running: {instruction[:200]}...")
+            logging.info(
+                f"Subagent {subagent_id} started running: {instruction[:200]}..."
+            )
 
             # Run the agent asynchronously
             await stream.send("Executing task with AI model...")
@@ -100,10 +103,10 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             # Process result
             await stream.send("Processing results...")
             result = response.content
-            
+
             SUBAGENTS[subagent_id]["result"] = result
             SUBAGENTS[subagent_id]["status"] = "completed"
-            
+
             # Send completion notification via SAU
             await stream.send("Task completed successfully!")
             logging.info(f"Subagent {subagent_id} completed.")
@@ -111,7 +114,7 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
         except Exception as e:
             SUBAGENTS[subagent_id]["status"] = "failed"
             SUBAGENTS[subagent_id]["result"] = str(e)
-            
+
             # Send error notification via SAU
             await stream.send(f"Task failed: {str(e)}", msg_type="error")
             logging.error(f"Subagent {subagent_id} failed: {e}")
@@ -123,63 +126,69 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
         final_name = subagent_data["name"]
         status = subagent_data["status"]
         result = subagent_data["result"]
-        
+
         # Get the telegram bot instance using our helper
         telegram_bot = get_telegram_bot()
-        
+
         if telegram_bot:
             status_emoji = "✅" if status == "completed" else "❌"
-            status_text = "completed successfully" if status == "completed" else "failed"
-            
+            status_text = (
+                "completed successfully" if status == "completed" else "failed"
+            )
+
             # Build the completion message
             msg = f"{status_emoji} <b>Subagent '{final_name}' {status_text}!</b>\n\n"
-            
+
             if status == "completed" and result:
                 msg += f"<b>Result:</b>\n{result}"
             else:
                 msg += f"<b>Error:</b> {result}"
-            
+
             # Use long message handler to automatically convert to PDF if needed
             await send_message_with_fallback(
                 telegram_bot,
                 int(final_chat_id),
                 msg,
-                title=f"Subagent Report: {final_name}"
+                title=f"Subagent Report: {final_name}",
             )
 
 
 def _preprocess_task_with_context_optimization(task: str) -> str:
     """
     Preprocess subagent task with context optimization.
-    
+
     This handles the case where tool outputs (especially web searches)
     produce massive amounts of text that would exceed context limits.
-    
+
     The function:
     1. Detects if the task contains large search results or tool outputs
     2. Applies middle-out transformation or summarization
     3. Adds instructions for the subagent to summarize results before final output
-    
+
     Args:
         task: The raw task string
-        
+
     Returns:
         Optimized task string with context management instructions
     """
     # If task is very large, optimize it before passing to agent
     if len(task) > CHAR_LIMIT_HIGH:
         optimizer = get_context_optimizer()
-        
+
         # Use middle-out for moderately large, summarize for very large
         if len(task) > 200000:
             # Use synchronous fallback for emergency truncation
             optimized_task = optimizer._middle_out_transform(task, CHAR_LIMIT_EMERGENCY)
-            logging.warning(f"Emergency truncation applied: {len(task)} -> {len(optimized_task)} chars")
+            logging.warning(
+                f"Emergency truncation applied: {len(task)} -> {len(optimized_task)} chars"
+            )
         else:
             # Apply middle-out transformation
             optimized_task = optimizer._middle_out_transform(task, CHAR_LIMIT_HIGH)
-            logging.info(f"Middle-out transform applied: {len(task)} -> {len(optimized_task)} chars")
-        
+            logging.info(
+                f"Middle-out transform applied: {len(task)} -> {len(optimized_task)} chars"
+            )
+
         # Add context management prefix
         task = f"""⚠️ IMPORTANT: The following task contains large input data that has been truncated for context management.
 
@@ -200,7 +209,7 @@ IMPORTANT INSTRUCTIONS:
 
 Begin task execution now.
 """
-    
+
     return task
 
 
@@ -271,7 +280,7 @@ async def create_subagent(
             instructions=instructions,
             task=task,
             max_instruction_tokens=10000,  # ~40k chars
-            max_task_tokens=150000  # ~600k chars (conservative for subagent)
+            max_task_tokens=150000,  # ~600k chars (conservative for subagent)
         )
         instructions = optimized_instructions
         task = optimized_task
@@ -279,7 +288,7 @@ async def create_subagent(
     except Exception as e:
         # Fallback to basic truncation if optimization fails
         logging.warning(f"Context optimization failed: {e}, using basic truncation")
-        
+
         if instr_len > 50000:
             instructions = instructions[:50000] + "\n\n... [TRUNCATED] ..."
 
@@ -296,6 +305,10 @@ async def create_subagent(
         create_directory,
         push_to_github,
         pull_latest_changes,
+        send_streaming_start,
+        send_streaming_progress,
+        send_streaming_complete,
+        send_streaming_error,
     ]
 
     # Add MCP tools (Search, etc.)
@@ -373,14 +386,16 @@ async def create_subagent(
     }
 
     # Heartbeat monitoring DISABLED - SAU is the mandatory default
-    logging.info(f"Subagent '{name}' created - SAU live updates enabled (heartbeat disabled)")
+    logging.info(
+        f"Subagent '{name}' created - SAU live updates enabled (heartbeat disabled)"
+    )
 
     # Proactive notification - send SAU start
     if chat_id:
         from nova.telegram_bot import notify_user
 
         asyncio.create_task(notify_user(chat_id, f"🚀 <b>Starting Subagent:</b> {name}"))
-        
+
         # Also send SAU start notification
         asyncio.create_task(send_streaming_start(chat_id, name))
 
@@ -435,7 +450,7 @@ def kill_subagent(subagent_id: str) -> str:
     if data["status"] in ["running", "starting"]:
         data["task_obj"].cancel()
         data["status"] = "cancelled"
-        
+
         # Send cancellation notification via SAU
         chat_id = data.get("chat_id")
         name = data.get("name")
@@ -443,7 +458,7 @@ def kill_subagent(subagent_id: str) -> str:
             asyncio.create_task(
                 send_streaming_error(chat_id, name, "Task was cancelled by user")
             )
-        
+
         return f"Subagent {data['name']} cancelled."
     else:
         return f"Subagent {data['name']} is not running (Status: {data['status']})."
