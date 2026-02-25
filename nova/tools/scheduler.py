@@ -80,8 +80,9 @@ class ScheduledTask(Base):
 # ============================================================================
 
 
-# Session Factory
-SessionLocal = get_session_factory()
+def get_session():
+    """Returns a new session from the current session factory."""
+    return get_session_factory()()
 
 
 # ============================================================================
@@ -270,7 +271,7 @@ async def _job_executor(job):
 
     # Get job data from database
 
-    db = SessionLocal()
+    db = get_session()
 
     try:
         task = db.query(ScheduledTask).filter(ScheduledTask.id == job_id).first()
@@ -406,7 +407,7 @@ def add_scheduled_task(
 
     # Save to database
 
-    db = SessionLocal()
+    db = get_session()
 
     try:
         # Check for existing task
@@ -453,7 +454,7 @@ def add_scheduled_task(
 def list_scheduled_tasks() -> str:
     """List all scheduled tasks."""
 
-    db = SessionLocal()
+    db = get_session()
 
     try:
         tasks = db.query(ScheduledTask).order_by(ScheduledTask.id).all()
@@ -486,7 +487,7 @@ def list_scheduled_tasks() -> str:
 def get_scheduled_task(task_name: str) -> str:
     """Get details of a specific scheduled task."""
 
-    db = SessionLocal()
+    db = get_session()
 
     try:
         task = (
@@ -541,7 +542,7 @@ def update_scheduled_task(
 ) -> str:
     """Update an existing scheduled task."""
 
-    db = SessionLocal()
+    db = get_session()
 
     try:
         task = (
@@ -602,7 +603,7 @@ def update_scheduled_task(
 def remove_scheduled_task(task_name: str) -> str:
     """Remove a scheduled task."""
 
-    db = SessionLocal()
+    db = get_session()
 
     try:
         task = (
@@ -635,7 +636,7 @@ def remove_scheduled_task(task_name: str) -> str:
 def pause_scheduled_task(task_name: str) -> str:
     """Pause a scheduled task."""
 
-    db = SessionLocal()
+    db = get_session()
 
     try:
         task = (
@@ -666,7 +667,7 @@ def pause_scheduled_task(task_name: str) -> str:
 def resume_scheduled_task(task_name: str) -> str:
     """Resume a paused scheduled task."""
 
-    db = SessionLocal()
+    db = get_session()
 
     try:
         task = (
@@ -703,7 +704,7 @@ def resume_scheduled_task(task_name: str) -> str:
 def run_scheduled_task_now(task_name: str) -> str:
     """Manually trigger a scheduled task immediately."""
 
-    db = SessionLocal()
+    db = get_session()
 
     try:
         task = (
@@ -743,7 +744,7 @@ def start_scheduler() -> str:
 
         # Add existing active tasks from database
 
-        db = SessionLocal()
+        db = get_session()
 
         try:
             active_tasks = (

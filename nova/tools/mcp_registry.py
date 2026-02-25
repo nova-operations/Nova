@@ -19,8 +19,9 @@ class MCPServerConfig(Base):
 
 
 class MCPRegistry:
-    def __init__(self):
-        self.Session = get_session_factory()
+    @property
+    def Session(self):
+        return get_session_factory()
 
     def register_server(
         self,

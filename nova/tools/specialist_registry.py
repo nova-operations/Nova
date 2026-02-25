@@ -24,15 +24,16 @@ class SpecialistConfig(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
-# Session Factory
-SessionLocal = get_session_factory()
+def get_session():
+    """Returns a new session from the current session factory."""
+    return get_session_factory()()
 
 
 def save_specialist_config(
     name: str, role: str, instructions: str, model: str = None, tools: List[str] = None
 ) -> str:
     """Save or update a specialist configuration in the database."""
-    session = SessionLocal()
+    session = get_session()
     try:
         config = (
             session.query(SpecialistConfig)
@@ -61,7 +62,7 @@ def save_specialist_config(
 
 def get_specialist_config(name: str) -> Optional[Dict]:
     """Retrieve a specialist configuration."""
-    session = SessionLocal()
+    session = get_session()
     try:
         config = (
             session.query(SpecialistConfig)
@@ -83,7 +84,7 @@ def get_specialist_config(name: str) -> Optional[Dict]:
 
 def list_specialists() -> str:
     """List all registered specialists."""
-    session = SessionLocal()
+    session = get_session()
     try:
         configs = session.query(SpecialistConfig).all()
         if not configs:

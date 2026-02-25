@@ -1,4 +1,5 @@
 import os
+import asyncio
 from typing import Optional
 from datetime import timedelta
 from dotenv import load_dotenv
@@ -119,6 +120,7 @@ def get_mcp_toolkits():
                             server_params=params,
                             transport="stdio",
                             tool_name_prefix=name,
+                            timeout_seconds=120,
                         )
                     )
                 else:
@@ -132,8 +134,13 @@ def get_mcp_toolkits():
                             server_params=params,
                             transport="streamable-http",
                             tool_name_prefix=name,
+                            timeout_seconds=120,
                         )
                     )
+            except asyncio.CancelledError:
+                print(
+                    f"⚠️ Warning: MCP server {s.get('name')} setup cancelled (timeout)."
+                )
             except Exception as e:
                 print(f"❌ Error setting up MCP server {s.get('name')}: {e}")
     except Exception as e:
