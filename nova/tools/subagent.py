@@ -32,6 +32,15 @@ from nova.long_message_handler import (
     TELEGRAM_MAX_LENGTH
 )
 
+# Import context optimizer for token management
+from nova.tools.context_optimizer import (
+    optimize_subagent_input,
+    optimize_search_results,
+    get_context_optimizer,
+    CHAR_LIMIT_HIGH,
+    CHAR_LIMIT_EMERGENCY
+)
+
 load_dotenv()
 
 # Global dictionary to store running subagents
@@ -44,7 +53,7 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     """
     try:
         SUBAGENTS[subagent_id]["status"] = "running"
-        logging.info(f"Subagent {subagent_id} started running: {instruction}")
+        logging.info(f"Subagent {subagent_id} started running: {instruction[:200]}...")
 
         # Run the agent asynchronously
         response = await agent.arun(instruction)
@@ -88,6 +97,62 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
                 msg,
                 title=f"Subagent Report: {name}"
             )
+
+
+def _preprocess_task_with_context_optimization(task: str) -> str:
+    """
+    Preprocess subagent task with context optimization.
+    
+    This handles the case where tool outputs (especially web searches)
+    produce massive amounts of text that would exceed context limits.
+    
+    The function:
+    1. Detects if the task contains large search results or tool outputs
+    2. Applies middle-out transformation or summarization
+    3. Adds instructions for the subagent to summarize results before final output
+    
+    Args:
+        task: The raw task string
+        
+    Returns:
+        Optimized task string with context management instructions
+    """
+    # If task is very large, optimize it before passing to agent
+    if len(task) > CHAR_LIMIT_HIGH:
+        optimizer = get_context_optimizer()
+        
+        # Use middle-out for moderately large, summarize for very large
+        if len(task) > 200000:
+            # Use synchronous fallback for emergency truncation
+            optimized_task = optimizer._middle_out_transform(task, CHAR_LIMIT_EMERGENCY)
+            logging.warning(f"Emergency truncation applied: {len(task)} -> {len(optimized_task)} chars")
+        else:
+            # Apply middle-out transformation
+            optimized_task = optimizer._middle_out_transform(task, CHAR_LIMIT_HIGH)
+            logging.info(f"Middle-out transform applied: {len(task)} -> {len(optimized_task)} chars")
+        
+        # Add context management prefix
+        task = f"""⚠️ IMPORTANT: The following task contains large input data that has been truncated for context management.
+
+CONTEXT LIMITATIONS:
+- The input has been reduced from {len(task)} to approximately {CHAR_LIMIT_HIGH} characters
+- Key sections at start, middle, and end are preserved
+- You may need to work with partial data
+
+YOUR TASK:
+{optimized_task}
+
+IMPORTANT INSTRUCTIONS:
+1. Process the task with the available data
+2. If you need more information, use tools to fetch only what's essential
+3. When providing final results, keep them concise - avoid dumping entire tool outputs
+4. If results are long, summarize key findings rather than including all raw data
+5. Use bullet points and keep your response under 2000 words if possible
+
+Begin task execution now.
+"""
+    
+    return task
 
 
 # Changed to async def to ensure we are in a valid async context
@@ -142,22 +207,34 @@ async def create_subagent(
                 db_path = "nova_memory.db"
         db = SqliteDb(db_file=db_path)
 
-    # Safeguard: Log lengths and truncate if insane
+    # Safeguard: Log lengths
     instr_len = len(instructions)
     task_len = len(task)
     logging.info(
         f"Creating subagent '{name}' (instr_len: {instr_len}, task_len: {task_len})"
     )
 
-    if instr_len > 50000:
-        logging.warning(
-            f"Extremely long instructions ({instr_len}). Truncating to 50k."
+    # Apply context optimization to instructions and task
+    # This is the key fix for the token overflow issue
+    try:
+        optimized_instructions, optimized_task = await optimize_subagent_input(
+            instructions=instructions,
+            task=task,
+            max_instruction_tokens=10000,  # ~40k chars
+            max_task_tokens=150000  # ~600k chars (conservative for subagent)
         )
-        instructions = instructions[:50000] + "\n\n... [TRUNCATED] ..."
+        instructions = optimized_instructions
+        task = optimized_task
+        logging.info(f"Context optimization applied for subagent '{name}'")
+    except Exception as e:
+        # Fallback to basic truncation if optimization fails
+        logging.warning(f"Context optimization failed: {e}, using basic truncation")
+        
+        if instr_len > 50000:
+            instructions = instructions[:50000] + "\n\n... [TRUNCATED] ..."
 
-    if task_len > 50000:
-        logging.warning(f"Extremely long task ({task_len}). Truncating to 50k.")
-        task = task[:50000] + "\n\n... [TRUNCATED] ..."
+        if task_len > 50000:
+            task = _preprocess_task_with_context_optimization(task)
 
     # Give subagents DOER tools, avoid giving management tools to prevent recursion
     tools_list = [
@@ -179,17 +256,28 @@ async def create_subagent(
     except ImportError:
         logging.warning("Could not import get_mcp_toolkits in subagent")
 
+    # Enhanced instructions with context management
+    enhanced_instructions = [
+        f"You are a specialized subagent named '{name}'.",
+        "Your goal is to execute the specific task assigned to you.",
+        "You have access to shell, filesystem, and specialized MCP tools.",
+        "Focus on DOING the work rather than delegating.",
+        "",
+        "## CONTEXT MANAGEMENT (IMPORTANT):",
+        "- You may receive truncated or summarized inputs due to context limits",
+        "- Do NOT ask for more data - work with what you have",
+        "- When presenting results, SUMMARIZE rather than dumping raw data",
+        "- Use bullet points and keep responses concise",
+        "- If results exceed 2000 words, provide an executive summary",
+        "",
+        instructions,
+    ]
+
     agent = Agent(
         model=model,
         db=db,
         description=f"Subagent {name} - A specialized worker focused on execution.",
-        instructions=[
-            f"You are a specialized subagent named '{name}'.",
-            "Your goal is to execute the specific task assigned to you.",
-            "You have access to shell, filesystem, and specialized MCP tools.",
-            "Focus on DOING the work rather than delegating.",
-            instructions,
-        ],
+        instructions=enhanced_instructions,
         tools=tools_list,
         markdown=True,
         add_history_to_context=True,
