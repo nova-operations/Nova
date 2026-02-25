@@ -102,6 +102,23 @@ async def create_subagent(
                 db_path = "nova_memory.db"
         db = SqliteDb(db_file=db_path)
 
+    # Safeguard: Log lengths and truncate if insane
+    instr_len = len(instructions)
+    task_len = len(task)
+    logging.info(
+        f"Creating subagent '{name}' (instr_len: {instr_len}, task_len: {task_len})"
+    )
+
+    if instr_len > 50000:
+        logging.warning(
+            f"Extremely long instructions ({instr_len}). Truncating to 50k."
+        )
+        instructions = instructions[:50000] + "\n\n... [TRUNCATED] ..."
+
+    if task_len > 50000:
+        logging.warning(f"Extremely long task ({task_len}). Truncating to 50k.")
+        task = task[:50000] + "\n\n... [TRUNCATED] ..."
+
     # Give subagents DOER tools, avoid giving management tools to prevent recursion
     tools_list = [
         execute_shell_command,
@@ -136,6 +153,9 @@ async def create_subagent(
         tools=tools_list,
         markdown=True,
         add_history_to_context=True,
+        num_history_messages=10,  # Only keep last 10 messages for context
+        num_history_runs=3,  # Only keep last 3 runs
+        add_datetime_to_context=True,  # Helpful for news/search
     )
 
     # Create the task
