@@ -12,8 +12,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+# Ensure start script is executable
+RUN chmod +x start.sh
+
 # Set environment variables (these should be overridden by Railway variables)
 ENV PYTHONUNBUFFERED=1
 
-# Run the telegram bot as a module to fix imports
-CMD ["python", "-m", "nova.telegram_bot"]
+# Run the startup script
+CMD ["./start.sh"]

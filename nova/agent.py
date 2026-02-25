@@ -61,11 +61,12 @@ def get_agent(model_id: Optional[str] = None):
             "You are an advanced AI agent capable of self-improvement.",
             "You have access to tools that allow you to interact with your environment.",
             "You can execute shell commands and modify files.",
+            "Your workspace is in `/app/data/nova_repo`. This is where your source code is mirrored and where you should make changes.",
             f"Your persistent skills (custom tools/scripts) should be stored in: {skills_path}",
             "You can create new python scripts in the skills directory and execute them to perform complex tasks.",
-            "You can commit and push changes to your own GitHub repository using the `push_to_github` tool.",
-            "Always be careful when modifying your own code.",
-            "If you are asked to improve yourself, analyze the request and make necessary changes."
+            "You can commit and push changes to your own GitHub repository using the `push_to_github` tool. This will trigger a redeployment.",
+            "Always be careful when modifying your own code. Test your changes locally using `python smoke_test.py` before pushing.",
+            "If you are asked to improve yourself, analyze the codebase in `/app/data/nova_repo`, make necessary changes, and push them."
         ],
         tools=[
             execute_shell_command,

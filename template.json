@@ -21,6 +21,10 @@
                     "required": true
                 },
                 "DATABASE_URL": "${{ postgres.DATABASE_URL }}",
+                "GITHUB_TOKEN": {
+                    "description": "Your GitHub Personal Access Token (classic with repo scope or fine-grained with contents/metadata)",
+                    "required": true
+                },
                 "GITHUB_REPO": "nova-operations/Nova",
                 "AGENT_MODEL": "google/gemini-2.0-flash-001",
                 "SUBAGENT_MODEL": "google/gemini-2.0-flash-001"
