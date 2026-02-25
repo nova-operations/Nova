@@ -9,7 +9,10 @@ from nova.tools.shell import execute_shell_command
 from nova.tools.filesystem import read_file, write_file, list_files, delete_file, create_directory
 from nova.tools.subagent import create_subagent, list_subagents, get_subagent_result, kill_subagent
 from nova.tools.github_tools import push_to_github, pull_latest_changes
+from nova.tools.mcp_registry import mcp_registry
+from nova.tools.mcp_tools import add_mcp_server, remove_mcp_server, list_registered_mcp_servers
 from nova.logger import setup_logging
+from agno.tools.mcp import MCPTools
 
 load_dotenv()
 setup_logging()
@@ -32,21 +35,14 @@ def get_agent(model_id: Optional[str] = None):
     )
 
     database_url = os.getenv("DATABASE_URL")
-    if database_url and (database_url.startswith("postgresql://") or database_url.startswith("postgres://")):
-        # Ensure the scheme is postgresql:// for SQLAlchemy compatibility
+    if database_url:
         if database_url.startswith("postgres://"):
             database_url = database_url.replace("postgres://", "postgresql://", 1)
         db = PostgresDb(session_table="nova_agent_sessions", db_url=database_url)
     else:
-        # Use persistent path for DB if available (e.g. Railway volume at /app/data)
-        # If /app/data doesn't exist, fallback to local dir
         db_path = "/app/data/nova_memory.db"
         if not os.path.exists("/app/data"):
-            try:
-                 os.makedirs("/app/data", exist_ok=True)
-            except OSError:
-                 # Fallback if we can't create directory
-                 db_path = "nova_memory.db"
+            db_path = "nova_memory.db"
         db = SqliteDb(db_file=db_path)
 
     # Define persistent skills directory
@@ -82,13 +78,36 @@ def get_agent(model_id: Optional[str] = None):
             get_subagent_result,
             kill_subagent,
             push_to_github,
-            pull_latest_changes
+            pull_latest_changes,
+            add_mcp_server,
+            remove_mcp_server,
+            list_registered_mcp_servers
         ],
         markdown=True,
         add_history_to_context=True,
         update_memory_on_run=True,
         cache_session=True, 
     )
+
+    # Dynamically add MCP tools from registry
+    try:
+        registered_servers = mcp_registry.list_servers()
+        for s in registered_servers:
+            mcp_kwargs = {
+                "name": s['name'],
+                "transport": s['transport']
+            }
+            if s['transport'] == "stdio":
+                mcp_kwargs["command"] = s['command']
+                mcp_kwargs["args"] = s['args']
+                mcp_kwargs["env"] = s['env']
+            elif s['transport'] == "streamable-http":
+                mcp_kwargs["url"] = s['url']
+            
+            mcp_tool = MCPTools(**mcp_kwargs)
+            agent.tools.append(mcp_tool)
+    except Exception as e:
+        print(f"Error loading MCP tools: {e}")
     
     return agent
 

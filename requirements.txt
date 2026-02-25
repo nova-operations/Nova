@@ -7,3 +7,4 @@ sqlalchemy
 aiosqlite
 psycopg[binary]
 psycopg2-binary
+mcp

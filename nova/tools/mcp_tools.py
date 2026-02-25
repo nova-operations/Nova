@@ -1,19 +1,36 @@
-import asyncio
-import json
-from mcp_client import mcp_manager
+from nova.tools.mcp_registry import mcp_registry
+from typing import List, Dict, Optional
 
-async def register_mcp_server(name: str, command: str, args: list = None, env: dict = None):
-    """Registers a new MCP server configuration."""
-    return await mcp_manager.register_server(name, command, args, env)
+def add_mcp_server(name: str, transport: str = "stdio", command: str = None, args: List[str] = None, url: str = None, env: Dict[str, str] = None) -> str:
+    """
+    Adds a new MCP server to the permanent registry. 
+    The agent will gain access to this server's tools after the next initialization.
+    
+    Args:
+        name: Unique name for the server.
+        transport: 'stdio' for local servers, 'streamable-http' for remote ones.
+        command: Command to run (required for stdio).
+        args: List of arguments for the command.
+        url: Connection URL (required for streamable-http).
+        env: Environment variables for the server.
+    """
+    return mcp_registry.register_server(name, transport, command, args, url, env)
 
-async def connect_mcp_server(name: str):
-    """Establishes connection to a registered MCP server."""
-    return await mcp_manager.connect_to_server(name)
+def remove_mcp_server(name: str) -> str:
+    """Removes an MCP server from the registry."""
+    return mcp_registry.remove_server(name)
 
-async def list_mcp_tools(name: str):
-    """Lists available tools from a connected MCP server."""
-    return await mcp_manager.list_tools(name)
-
-async def call_mcp_tool(server_name: str, tool_name: str, arguments: dict):
-    """Calls a specific tool on a connected MCP server."""
-    return await mcp_manager.call_tool(server_name, tool_name, arguments)
+def list_registered_mcp_servers() -> str:
+    """Lists all registered MCP servers and their configurations."""
+    servers = mcp_registry.list_servers()
+    if not servers:
+        return "No MCP servers registered."
+    
+    report = ["Registered MCP Servers:"]
+    for s in servers:
+        report.append(f"- {s['name']} ({s['transport']})")
+        if s['command']:
+            report.append(f"  Command: {s['command']} {' '.join(s['args'])}")
+        if s['url']:
+            report.append(f"  URL: {s['url']}")
+    return "\n".join(report)
