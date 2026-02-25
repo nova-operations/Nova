@@ -201,11 +201,12 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
     try:
         if StreamableHTTPClientParams:
             mcp_docs = MCPTools(
+                "agno_docs",
                 server_params=StreamableHTTPClientParams(url="https://docs.agno.com/mcp", timeout=120)
             )
             agent.tools.append(mcp_docs)
         else:
-            agent.tools.append(MCPTools(url="https://docs.agno.com/mcp"))
+            agent.tools.append(MCPTools("agno_docs", url="https://docs.agno.com/mcp"))
     except Exception as e:
         print(f"⚠️ Warning: Failed to load Agno Docs MCP: {e}")
 
@@ -224,9 +225,8 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
                             args=s['args'],
                             env=s['env'] or os.environ.copy()
                         )
-                        # We don't set name= here because it conflicts with internal Agno name
-                        # But we can wrap it in a try to ensure one failure doesn't kill the agent
-                        mcp_tool = MCPTools(server_params=server_params)
+                        # Use positional name to avoid Agno keyword conflict
+                        mcp_tool = MCPTools(name, server_params=server_params)
                         agent.tools.append(mcp_tool)
                     else:
                         cmd = s['command']
@@ -241,9 +241,10 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
                             headers=s.get('env'),
                             timeout=120 # Increased timeout
                         )
-                        agent.tools.append(MCPTools(server_params=server_params))
+                        mcp_tool = MCPTools(name, server_params=server_params)
+                        agent.tools.append(mcp_tool)
                     else:
-                        agent.tools.append(MCPTools(url=s['url']))
+                        agent.tools.append(MCPTools(name, url=s['url']))
                 
                 print(f"✅ Loaded MCP Server: {name}")
             except Exception as e:
