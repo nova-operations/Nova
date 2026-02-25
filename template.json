@@ -32,7 +32,13 @@
             "deploy": {
                 "numReplicas": 1,
                 "restartPolicy": "ON_FAILURE"
-            }
+            },
+            "volumes": [
+                {
+                    "mountPath": "/app/data",
+                    "name": "nova-data"
+                }
+            ]
         }
     ],
     "databases": [
