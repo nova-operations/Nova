@@ -23,6 +23,15 @@ from nova.tools.github_tools import push_to_github, pull_latest_changes
 # Import heartbeat integration
 from nova.tools.heartbeat_integration import auto_register_with_heartbeat
 
+# Import long message handler for PDF conversion
+from nova.long_message_handler import (
+    send_message_with_fallback,
+    is_message_too_long,
+    create_pdf_from_text,
+    process_long_message,
+    TELEGRAM_MAX_LENGTH
+)
+
 load_dotenv()
 
 # Global dictionary to store running subagents
@@ -48,6 +57,37 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
         SUBAGENTS[subagent_id]["status"] = "failed"
         SUBAGENTS[subagent_id]["result"] = str(e)
         logging.error(f"Subagent {subagent_id} failed: {e}")
+
+    # After completion, send notification to user if chat_id is available
+    subagent_data = SUBAGENTS.get(subagent_id)
+    if subagent_data and subagent_data.get("chat_id"):
+        chat_id = subagent_data["chat_id"]
+        name = subagent_data["name"]
+        status = subagent_data["status"]
+        result = subagent_data["result"]
+        
+        # Get the telegram bot instance
+        from nova.telegram_bot import telegram_bot_instance
+        
+        if telegram_bot_instance:
+            status_emoji = "✅" if status == "completed" else "❌"
+            status_text = "completed successfully" if status == "completed" else "failed"
+            
+            # Build the completion message
+            msg = f"{status_emoji} <b>Subagent '{name}' {status_text}!</b>\n\n"
+            
+            if status == "completed" and result:
+                msg += f"<b>Result:</b>\n{result}"
+            else:
+                msg += f"<b>Error:</b> {result}"
+            
+            # Use long message handler to automatically convert to PDF if needed
+            await send_message_with_fallback(
+                telegram_bot_instance,
+                int(chat_id),
+                msg,
+                title=f"Subagent Report: {name}"
+            )
 
 
 # Changed to async def to ensure we are in a valid async context
@@ -213,6 +253,14 @@ def get_subagent_result(subagent_id: str) -> str:
 
     data = SUBAGENTS[subagent_id]
     if data["status"] == "completed":
+        result = data["result"]
+        # Check if result is too long and provide info about PDF conversion
+        if is_message_too_long(str(result)):
+            return (
+                f"Result for {data['name']}:\n\n"
+                f"[Result is {len(str(result))} chars, exceeds Telegram limit of {TELEGRAM_MAX_LENGTH}. "
+                f"It was sent as a PDF via the notification system.]"
+            )
         return f"Result for {data['name']}:\n{data['result']}"
     elif data["status"] == "failed":
         return f"Subagent {data['name']} failed: {data['result']}"

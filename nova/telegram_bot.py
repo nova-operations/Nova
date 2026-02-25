@@ -15,6 +15,13 @@ from nova.agent import get_agent
 from nova.logger import setup_logging
 from nova.tools.heartbeat import get_heartbeat_monitor
 from nova.tools.subagent import SUBAGENTS
+from nova.long_message_handler import (
+    send_message_with_fallback,
+    TELEGRAM_MAX_LENGTH,
+    is_message_too_long,
+    create_pdf_from_text,
+    process_long_message
+)
 
 import sys
 
@@ -83,12 +90,17 @@ async def heartbeat_callback(report: str, records: List[object]):
             # Use HTML and escape result for resilience
             clean_result = escape(str(r.result))
             msg = f"{status_emoji} <b>{escape(r.name)} has finished!</b>\n\n<b>Result:</b>\n{clean_result}"
-            try:
-                await telegram_bot_instance.send_message(
-                    chat_id=chat_id, text=msg, parse_mode="HTML"
-                )
-            except Exception as e:
-                logging.error(f"Failed to send completion message to {chat_id}: {e}")
+            
+            # Use long message handler to automatically convert to PDF if needed
+            success, status = await send_message_with_fallback(
+                telegram_bot_instance,
+                chat_id,
+                msg,
+                title=f"Subagent Report: {r.name}"
+            )
+            
+            if not success:
+                logging.error(f"Failed to send completion message to {chat_id}")
 
         if active_records:
             header = f"📊 <b>Nova Team Heartbeat Update</b>"
@@ -97,22 +109,29 @@ async def heartbeat_callback(report: str, records: List[object]):
                 status_emoji = "🔄" if r.status == "running" else "⏳"
                 lines.append(f"{status_emoji} <b>{escape(r.name)}</b>: {r.status}")
 
-            try:
-                await telegram_bot_instance.send_message(
-                    chat_id=chat_id, text="\n".join(lines), parse_mode="HTML"
-                )
-            except Exception as e:
-                logging.error(f"Failed to send heartbeat to {chat_id}: {e}")
+            msg = "\n".join(lines)
+            
+            # Use long message handler for heartbeat updates too
+            await send_message_with_fallback(
+                telegram_bot_instance,
+                chat_id,
+                msg,
+                title="Heartbeat Update"
+            )
 
 
 async def notify_user(chat_id: str, message: str):
-    """Proactively send a message to a user."""
+    """Proactively send a message to a user with long message support."""
     global telegram_bot_instance
     if not telegram_bot_instance:
         return
+    
     try:
-        await telegram_bot_instance.send_message(
-            chat_id=int(chat_id), text=message, parse_mode="HTML"
+        await send_message_with_fallback(
+            telegram_bot_instance,
+            int(chat_id),
+            message,
+            title="Nova Notification"
         )
     except Exception as e:
         logging.error(f"Failed proactive notification to {chat_id}: {e}")
@@ -149,7 +168,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # response is RunOutput object. content is the text.
         if response and response.content:
-            await context.bot.send_message(chat_id=chat_id, text=response.content)
+            # Use long message handler to automatically convert to PDF if needed
+            await send_message_with_fallback(
+                context.bot,
+                chat_id,
+                response.content,
+                title="Nova Response"
+            )
         else:
             await context.bot.send_message(
                 chat_id=chat_id, text="I have nothing to say."
