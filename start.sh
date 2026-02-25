@@ -43,7 +43,7 @@ if [ -d "$REPO_DIR" ]; then
     # Ensure dependencies from the repo are installed (useful for self-improvement)
     if [ -f "requirements.txt" ]; then
         echo "📦 Updating dependencies from repository..."
-        pip install --no-cache-dir -r requirements.txt
+        pip install --no-cache-dir --root-user-action=ignore -r requirements.txt
     fi
 else
     echo "📂 Repo directory not found, staying in /app"
