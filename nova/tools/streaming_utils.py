@@ -29,14 +29,20 @@ def _get_telegram_bot():
     if _cached_bot_instance:
         return _cached_bot_instance
     
-    # Try to get from telegram_bot module
+    # Try to get from telegram_bot module using a function to avoid issues
+    # with module-level global not being set yet
     try:
-        from nova.telegram_bot import telegram_bot_instance
-        if telegram_bot_instance:
-            _cached_bot_instance = telegram_bot_instance
-            return telegram_bot_instance
+        # Import the module, not the instance directly
+        import nova.telegram_bot as tb_module
+        
+        # Check if the module has the instance
+        if hasattr(tb_module, 'telegram_bot_instance'):
+            bot = tb_module.telegram_bot_instance
+            if bot:
+                _cached_bot_instance = bot
+                return bot
     except ImportError as e:
-        logger.debug(f"Could not import telegram_bot_instance: {e}")
+        logger.debug(f"Could not import telegram_bot module: {e}")
     
     # If still not available, return None (will log warning)
     return None
@@ -87,8 +93,9 @@ async def send_live_update(
             logger.warning(f"Telegram bot instance not available for live update to {subagent_name}")
             # Debug: try to show what's happening
             try:
-                from nova import telegram_bot
-                logger.debug(f"telegram_bot module: {dir(telegram_bot)}")
+                import nova.telegram_bot as tb
+                logger.debug(f"telegram_bot module attributes: {[a for a in dir(tb) if not a.startswith('_')]}")
+                logger.debug(f"telegram_bot_instance value: {getattr(tb, 'telegram_bot_instance', 'NOT FOUND')}")
             except Exception as e2:
                 logger.debug(f"Could not inspect telegram_bot: {e2}")
             return False
@@ -208,3 +215,16 @@ class StreamingContext:
             subagent_name=self.subagent_name,
             message_type=msg_type
         )
+
+
+# Export the key functions for easy importing
+__all__ = [
+    'send_streaming_start',
+    'send_streaming_progress', 
+    'send_streaming_complete',
+    'send_streaming_error',
+    'send_live_update',
+    'StreamingContext',
+    'DEFAULT_CHAT_ID',
+    'STREAM_HEADER',
+]
