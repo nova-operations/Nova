@@ -34,6 +34,7 @@ HEARTBEAT_WARNING_THRESHOLD = 120  # Warn if subagent running > 2 minutes withou
 @dataclass
 class HeartbeatRecord:
     """Record of a heartbeat check for a subagent."""
+
     subagent_id: str
     name: str
     status: str
@@ -48,23 +49,25 @@ class HeartbeatRecord:
 class HeartbeatMonitor:
     """
     Background monitor that periodically checks on active subagents.
-    
+
     This acts as the "Heartbeat Subagent" - continuously running in the background,
     polling registered subagents and collecting their status.
     """
-    
+
     def __init__(self, interval: int = HEARTBEAT_INTERVAL_SECONDS):
         self.interval = interval
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._records: Dict[str, HeartbeatRecord] = {}
         self._callbacks: List[callable] = []
-    
+
     def register_callback(self, callback: callable):
         """Add a callback to be called on every heartbeat check."""
         self._callbacks.append(callback)
-    
-    def register_subagent(self, subagent_id: str, name: str, chat_id: Optional[str] = None):
+
+    def register_subagent(
+        self, subagent_id: str, name: str, chat_id: Optional[str] = None
+    ):
         """Register a subagent for heartbeat monitoring."""
         self._records[subagent_id] = HeartbeatRecord(
             subagent_id=subagent_id,
@@ -72,17 +75,17 @@ class HeartbeatMonitor:
             status="unknown",
             last_check=time.time(),
             start_time=time.time(),
-            chat_id=chat_id
+            chat_id=chat_id,
         )
         logger.info(f"Heartbeat: Registered subagent {name} ({subagent_id})")
-    
+
     def unregister_subagent(self, subagent_id: str):
         """Remove a subagent from heartbeat monitoring."""
         if subagent_id in self._records:
             name = self._records[subagent_id].name
             del self._records[subagent_id]
             logger.info(f"Heartbeat: Unregistered subagent {name} ({subagent_id})")
-    
+
     async def _check_subagent(self, subagent_id: str) -> HeartbeatRecord:
         """Check the status of a single subagent."""
         if subagent_id not in SUBAGENTS:
@@ -91,9 +94,9 @@ class HeartbeatMonitor:
                 record = self._records[subagent_id]
                 record.status = "not_found"
                 return record
-        
+
         data = SUBAGENTS[subagent_id]
-        
+
         # Get or create record
         if subagent_id not in self._records:
             self._records[subagent_id] = HeartbeatRecord(
@@ -102,80 +105,86 @@ class HeartbeatMonitor:
                 status=data.get("status", "unknown"),
                 last_check=time.time(),
                 start_time=time.time(),
-                chat_id=data.get("chat_id")
+                chat_id=data.get("chat_id"),
             )
-        
+
         record = self._records[subagent_id]
         record.status = data.get("status", "unknown")
         record.last_check = time.time()
-        
+
         # Check for warnings
         elapsed = time.time() - record.start_time
         if elapsed > HEARTBEAT_WARNING_THRESHOLD and record.status == "running":
             if not record.warning_issued:
                 record.warning_issued = True
-                record.updates.append(f"⚠️ Warning: {record.name} running for {elapsed:.0f}s without completion")
-        
+                record.updates.append(
+                    f"⚠️ Warning: {record.name} running for {elapsed:.0f}s without completion"
+                )
+
         # Capture result if completed
         if record.status in ["completed", "failed"]:
             record.result = data.get("result")
-        
+
         # Add status update
-        record.updates.append(f"[{datetime.now().strftime('%H:%M:%S')}] Status: {record.status}")
-        
+        record.updates.append(
+            f"[{datetime.now().strftime('%H:%M:%S')}] Status: {record.status}"
+        )
+
         return record
-    
+
     async def _heartbeat_loop(self):
         """Main heartbeat loop that runs in the background."""
         logger.info(f"Heartbeat Monitor started (interval: {self.interval}s)")
-        
+
         while self._running:
             try:
                 # Check all registered subagents
                 active_records = []
-                
+
                 for subagent_id in list(self._records.keys()):
                     record = await self._check_subagent(subagent_id)
                     active_records.append(record)
-                
+
                 # Generate heartbeat report
                 report = self._generate_report(active_records)
-                
+
                 # Call all registered callbacks with the report and the record list
                 for callback in self._callbacks:
                     try:
                         callback(report, active_records)
                     except Exception as e:
                         logger.error(f"Error in heartbeat callback: {e}")
-                
+
                 # Cleanup completed/failed subagents from records
                 to_remove = [
-                    sid for sid, record in self._records.items()
-                    if record.status in ["completed", "failed", "cancelled", "not_found"]
+                    sid
+                    for sid, record in self._records.items()
+                    if record.status
+                    in ["completed", "failed", "cancelled", "not_found"]
                 ]
                 for sid in to_remove:
                     del self._records[sid]
-                
+
             except Exception as e:
                 logger.error(f"Error in heartbeat loop: {e}")
-            
+
             # Wait for next interval
             await asyncio.sleep(self.interval)
-        
+
         logger.info("Heartbeat Monitor stopped")
-    
+
     def _generate_report(self, records: List[HeartbeatRecord]) -> str:
         """Generate a human-readable heartbeat report."""
         if not records:
             return "✅ Heartbeat: No active subagents to monitor."
-        
+
         lines = ["📊 **Heartbeat Report**"]
         lines.append(f"_{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}_")
         lines.append("")
-        
+
         running_count = 0
         completed_count = 0
-        
+
         for record in records:
             if record.status == "running":
                 running_count += 1
@@ -191,12 +200,12 @@ class HeartbeatMonitor:
                 lines.append(f"⏳ **{record.name}**: Starting...")
             elif record.status == "cancelled":
                 lines.append(f"🚫 **{record.name}**: Cancelled")
-        
+
         lines.append("")
         lines.append(f"Summary: {running_count} running, {completed_count} completed")
-        
+
         return "\n".join(lines)
-    
+
     def start(self):
         """Start the heartbeat monitor."""
         if not self._running:
@@ -205,8 +214,10 @@ class HeartbeatMonitor:
                 loop = asyncio.get_running_loop()
                 self._task = loop.create_task(self._heartbeat_loop())
             except RuntimeError:
-                logger.warning("No running event loop - heartbeat will start when agent runs")
-    
+                logger.warning(
+                    "No running event loop - heartbeat will start when agent runs"
+                )
+
     async def stop(self):
         """Stop the heartbeat monitor."""
         self._running = False
@@ -216,12 +227,12 @@ class HeartbeatMonitor:
                 await self._task
             except asyncio.CancelledError:
                 pass
-    
+
     def get_status(self) -> str:
         """Get current heartbeat status."""
         records = list(self._records.values())
         return self._generate_report(records)
-    
+
     def get_detailed_status(self) -> Dict:
         """Get detailed status as a dictionary."""
         return {
@@ -232,10 +243,10 @@ class HeartbeatMonitor:
                     "name": r.name,
                     "status": r.status,
                     "elapsed_seconds": time.time() - r.start_time,
-                    "warning_issued": r.warning_issued
+                    "warning_issued": r.warning_issued,
                 }
                 for sid, r in self._records.items()
-            }
+            },
         }
 
 
@@ -255,13 +266,14 @@ def get_heartbeat_monitor() -> HeartbeatMonitor:
 # PUBLIC API FUNCTIONS (for use as Nova tools)
 # =============================================================================
 
+
 def start_heartbeat_monitor(interval_seconds: int = 30) -> str:
     """
     Start the heartbeat monitor to track active subagents.
-    
+
     Args:
         interval_seconds: How often to check subagent status (default: 30)
-        
+
     Returns:
         Confirmation message
     """
@@ -278,15 +290,17 @@ def stop_heartbeat_monitor() -> str:
     return "🛑 Heartbeat Monitor stop requested (will stop on next check)"
 
 
-def register_subagent_for_heartbeat(subagent_id: str, name: str, chat_id: Optional[str] = None) -> str:
+def register_subagent_for_heartbeat(
+    subagent_id: str, name: str, chat_id: Optional[str] = None
+) -> str:
     """
     Register a subagent to be monitored by the heartbeat system.
-    
+
     Args:
         subagent_id: The ID of the subagent to monitor
         name: The name of the subagent
         chat_id: The Telegram Chat ID to send updates to (optional)
-        
+
     Returns:
         Confirmation message
     """
@@ -298,10 +312,10 @@ def register_subagent_for_heartbeat(subagent_id: str, name: str, chat_id: Option
 def unregister_subagent_from_heartbeat(subagent_id: str) -> str:
     """
     Remove a subagent from heartbeat monitoring.
-    
+
     Args:
         subagent_id: The ID of the subagent to unregister
-        
+
     Returns:
         Confirmation message
     """
@@ -313,7 +327,7 @@ def unregister_subagent_from_heartbeat(subagent_id: str) -> str:
 def get_heartbeat_status() -> str:
     """
     Get the current heartbeat status of all monitored subagents.
-    
+
     Returns:
         Formatted status report
     """
@@ -324,7 +338,7 @@ def get_heartbeat_status() -> str:
 def get_heartbeat_detailed_status() -> Dict:
     """
     Get detailed heartbeat status as a dictionary.
-    
+
     Returns:
         Detailed status information
     """
@@ -336,24 +350,25 @@ def auto_register_active_subagents() -> str:
     """
     Automatically register all currently running subagents for heartbeat monitoring.
     Call this when starting a task that spawns multiple subagents.
-    
+
     Returns:
         Confirmation message with count
     """
     monitor = get_heartbeat_monitor()
     count = 0
-    
+
     for subagent_id, data in SUBAGENTS.items():
         if data.get("status") in ["running", "starting"]:
             monitor.register_subagent(subagent_id, data.get("name", "unknown"))
             count += 1
-    
+
     return f"✅ Auto-registered {count} active subagents for heartbeat monitoring"
 
 
 # =============================================================================
 # INTEGRATION HELPERS
 # =============================================================================
+
 
 async def heartbeat_callback_example(report: str):
     """
@@ -366,20 +381,20 @@ async def heartbeat_callback_example(report: str):
 def setup_heartbeat_for_task(subagent_ids: List[str], subagent_names: List[str]) -> str:
     """
     Convenience function to setup heartbeat monitoring for a batch of subagents.
-    
+
     Args:
         subagent_ids: List of subagent IDs to monitor
         subagent_names: List of corresponding names
-        
+
     Returns:
         Confirmation message
     """
     monitor = get_heartbeat_monitor()
     monitor.start()  # Ensure monitor is running
-    
+
     for sid, name in zip(subagent_ids, subagent_names):
         # We try to get chat_id from SUBAGENTS if not provided
         chat_id = SUBAGENTS.get(sid, {}).get("chat_id")
         monitor.register_subagent(sid, name, chat_id=chat_id)
-    
+
     return f"✅ Heartbeat monitoring setup for {len(subagent_ids)} subagents"

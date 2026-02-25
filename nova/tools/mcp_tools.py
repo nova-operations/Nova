@@ -1,11 +1,19 @@
 from nova.tools.mcp_registry import mcp_registry
 from typing import List, Dict, Optional
 
-def add_mcp_server(name: str, transport: str = "stdio", command: str = None, args: List[str] = None, url: str = None, env: Dict[str, str] = None) -> str:
+
+def add_mcp_server(
+    name: str,
+    transport: str = "stdio",
+    command: str = None,
+    args: List[str] = None,
+    url: str = None,
+    env: Dict[str, str] = None,
+) -> str:
     """
-    Adds a new MCP server to the permanent registry. 
+    Adds a new MCP server to the permanent registry.
     The agent will gain access to this server's tools after the next initialization.
-    
+
     Args:
         name: Unique name for the server.
         transport: 'stdio' for local servers, 'streamable-http' for remote ones.
@@ -16,21 +24,23 @@ def add_mcp_server(name: str, transport: str = "stdio", command: str = None, arg
     """
     return mcp_registry.register_server(name, transport, command, args, url, env)
 
+
 def remove_mcp_server(name: str) -> str:
     """Removes an MCP server from the registry."""
     return mcp_registry.remove_server(name)
+
 
 def list_registered_mcp_servers() -> str:
     """Lists all registered MCP servers and their configurations."""
     servers = mcp_registry.list_servers()
     if not servers:
         return "No MCP servers registered."
-    
+
     report = ["Registered MCP Servers:"]
     for s in servers:
         report.append(f"- {s['name']} ({s['transport']})")
-        if s['command']:
+        if s["command"]:
             report.append(f"  Command: {s['command']} {' '.join(s['args'])}")
-        if s['url']:
+        if s["url"]:
             report.append(f"  URL: {s['url']}")
     return "\n".join(report)

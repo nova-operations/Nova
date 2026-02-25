@@ -51,12 +51,12 @@ When Nova spawns subagents for complex tasks, users often experience "silent wai
 ```python
 class HeartbeatMonitor:
     """Background monitor that periodically checks on active subagents."""
-    
+
     def __init__(self, interval: int = 30):
         self.interval = interval          # Check every N seconds
         self._records: Dict[str, HeartbeatRecord] = {}
         self._callbacks: List[callable] = []
-    
+
     def register_subagent(self, subagent_id: str, name: str)
     def unregister_subagent(self, subagent_id: str)
     def start(self)  # Start background monitoring
@@ -97,7 +97,7 @@ When Nova creates a subagent, it's **automatically registered**:
 ```
 User: "Analyze this codebase and create a report"
 
-Nova: 
+Nova:
 1. Creates "Analysis-Agent" subagent
 2. System automatically registers it for heartbeat
 3. Returns: "Subagent 'Analysis-Agent' created with ID: xxx"
@@ -150,7 +150,7 @@ Here's how Nova should use the heartbeat system:
 # 1. Analyze request
 # 2. Spawn subagent(s)
 result = create_subagent(
-    name="Research-Agent", 
+    name="Research-Agent",
     instructions="Research the topic...",
     task="Find information about..."
 )

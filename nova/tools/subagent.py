@@ -11,7 +11,13 @@ import os
 
 # Import all tools to give to subagents
 from nova.tools.shell import execute_shell_command
-from nova.tools.filesystem import read_file, write_file, list_files, delete_file, create_directory
+from nova.tools.filesystem import (
+    read_file,
+    write_file,
+    list_files,
+    delete_file,
+    create_directory,
+)
 from nova.tools.github_tools import push_to_github, pull_latest_changes
 
 # Import heartbeat integration
@@ -22,6 +28,7 @@ load_dotenv()
 # Global dictionary to store running subagents
 SUBAGENTS: Dict[str, Dict] = {}
 
+
 async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     """
     The actual coroutine that runs the subagent.
@@ -29,35 +36,38 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     try:
         SUBAGENTS[subagent_id]["status"] = "running"
         logging.info(f"Subagent {subagent_id} started running: {instruction}")
-        
+
         # Run the agent asynchronously
         response = await agent.arun(instruction)
-        
+
         SUBAGENTS[subagent_id]["result"] = response.content
         SUBAGENTS[subagent_id]["status"] = "completed"
         logging.info(f"Subagent {subagent_id} completed.")
-        
+
     except Exception as e:
         SUBAGENTS[subagent_id]["status"] = "failed"
         SUBAGENTS[subagent_id]["result"] = str(e)
         logging.error(f"Subagent {subagent_id} failed: {e}")
 
+
 # Changed to async def to ensure we are in a valid async context
-async def create_subagent(name: str, instructions: str, task: str, chat_id: Optional[str] = None) -> str:
+async def create_subagent(
+    name: str, instructions: str, task: str, chat_id: Optional[str] = None
+) -> str:
     """
     Creates and starts a subagent in the background.
-    
+
     Args:
         name: A name for the subagent.
         instructions: Instructions for the subagent's persona/behavior.
         task: The specific task or question for the subagent to process.
         chat_id: The Telegram Chat ID to send heartbeat updates to.
-        
+
     Returns:
         The ID of the created subagent.
     """
     subagent_id = str(uuid.uuid4())
-    
+
     # Configure the model
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
@@ -70,9 +80,12 @@ async def create_subagent(name: str, instructions: str, task: str, chat_id: Opti
         api_key=api_key,
         base_url="https://openrouter.ai/api/v1",
     )
-    
+
     database_url = os.getenv("DATABASE_URL")
-    if database_url and (database_url.startswith("postgresql://") or database_url.startswith("postgres://")):
+    if database_url and (
+        database_url.startswith("postgresql://")
+        or database_url.startswith("postgres://")
+    ):
         # Ensure the scheme is postgresql:// for SQLAlchemy compatibility
         if database_url.startswith("postgres://"):
             database_url = database_url.replace("postgres://", "postgresql://", 1)
@@ -83,12 +96,12 @@ async def create_subagent(name: str, instructions: str, task: str, chat_id: Opti
         db_path = "/app/data/nova_memory.db"
         if not os.path.exists("/app/data"):
             try:
-                 os.makedirs("/app/data", exist_ok=True)
+                os.makedirs("/app/data", exist_ok=True)
             except OSError:
-                 # Fallback if we can't create directory
-                 db_path = "nova_memory.db"
+                # Fallback if we can't create directory
+                db_path = "nova_memory.db"
         db = SqliteDb(db_file=db_path)
-    
+
     # Give subagents ALL tools
     tools_list = [
         execute_shell_command,
@@ -102,7 +115,7 @@ async def create_subagent(name: str, instructions: str, task: str, chat_id: Opti
         create_subagent,
         list_subagents,
         get_subagent_result,
-        kill_subagent
+        kill_subagent,
     ]
 
     agent = Agent(
@@ -114,7 +127,7 @@ async def create_subagent(name: str, instructions: str, task: str, chat_id: Opti
         markdown=True,
         add_history_to_context=True,
     )
-    
+
     # Create the task
     try:
         loop = asyncio.get_running_loop()
@@ -122,7 +135,7 @@ async def create_subagent(name: str, instructions: str, task: str, chat_id: Opti
         return "Error: No running event loop found. Subagents must be created within an async context."
 
     t = loop.create_task(run_subagent_task(subagent_id, agent, task))
-    
+
     SUBAGENTS[subagent_id] = {
         "name": name,
         "task_obj": t,
@@ -130,25 +143,27 @@ async def create_subagent(name: str, instructions: str, task: str, chat_id: Opti
         "status": "starting",
         "result": None,
         "instruction": task,
-        "chat_id": chat_id
+        "chat_id": chat_id,
     }
-    
+
     # Automatically register with heartbeat monitoring
     heartbeat_msg = auto_register_with_heartbeat(subagent_id, name, chat_id=chat_id)
     logging.info(f"Heartbeat registration: {heartbeat_msg}")
-    
+
     # Proactive notification
     if chat_id:
         from nova.telegram_bot import notify_user
+
         asyncio.create_task(notify_user(chat_id, f"🚀 <b>Starting Subagent:</b> {name}"))
-    
+
     return f"Subagent '{name}' created with ID: {subagent_id}\n{heartbeat_msg}"
+
 
 def list_subagents() -> str:
     """Lists all managed subagents and their status."""
     if not SUBAGENTS:
         return "No subagents found."
-    
+
     report = []
     for sid, data in SUBAGENTS.items():
         status = data["status"]
@@ -156,11 +171,12 @@ def list_subagents() -> str:
         report.append(f"ID: {sid} | Name: {name} | Status: {status}")
     return "\n".join(report)
 
+
 def get_subagent_result(subagent_id: str) -> str:
     """Retrieves the result of a completed subagent."""
     if subagent_id not in SUBAGENTS:
         return "Error: Subagent not found."
-    
+
     data = SUBAGENTS[subagent_id]
     if data["status"] == "completed":
         return f"Result for {data['name']}:\n{data['result']}"
@@ -169,11 +185,12 @@ def get_subagent_result(subagent_id: str) -> str:
     else:
         return f"Subagent {data['name']} is currently {data['status']}."
 
+
 def kill_subagent(subagent_id: str) -> str:
     """Stops a running subagent."""
     if subagent_id not in SUBAGENTS:
         return "Error: Subagent not found."
-    
+
     data = SUBAGENTS[subagent_id]
     if data["status"] in ["running", "starting"]:
         data["task_obj"].cancel()

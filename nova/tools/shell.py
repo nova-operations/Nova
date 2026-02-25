@@ -1,5 +1,6 @@
 import subprocess
 
+
 def execute_shell_command(command: str) -> str:
     """
     Executes a shell command and returns the output.
@@ -12,7 +13,7 @@ def execute_shell_command(command: str) -> str:
             shell=True,
             capture_output=True,
             text=True,
-            check=False # Don't raise exception, return stderr
+            check=False,  # Don't raise exception, return stderr
         )
         if result.returncode == 0:
             return result.stdout

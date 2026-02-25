@@ -11,10 +11,12 @@ load_dotenv()
 
 Base = declarative_base()
 
+
 class SpecialistConfig(Base):
     """Configuration for a reusable specialist agent."""
+
     __tablename__ = "specialist_configs"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), nullable=False, unique=True)
     role = Column(Text, nullable=False)
@@ -24,33 +26,49 @@ class SpecialistConfig(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+
 def get_db_engine():
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        return create_engine("sqlite:////app/data/nova_specialists.db")
+        db_path = os.getenv("SQLITE_DB_PATH", "data/nova_memory.db")
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
+        except OSError:
+            db_path = "nova_memory.db"
+        return create_engine(f"sqlite:///{db_path}")
     if database_url.startswith("postgres://"):
         database_url = database_url.replace("postgres://", "postgresql://", 1)
     return create_engine(database_url)
+
 
 # Initialization
 engine = get_db_engine()
 Base.metadata.create_all(engine)
 SessionLocal = sessionmaker(bind=engine)
 
-def save_specialist_config(name: str, role: str, instructions: str, model: str = None, tools: List[str] = None) -> str:
+
+def save_specialist_config(
+    name: str, role: str, instructions: str, model: str = None, tools: List[str] = None
+) -> str:
     """Save or update a specialist configuration in the database."""
     session = SessionLocal()
     try:
-        config = session.query(SpecialistConfig).filter(SpecialistConfig.name == name).first()
+        config = (
+            session.query(SpecialistConfig)
+            .filter(SpecialistConfig.name == name)
+            .first()
+        )
         if not config:
             config = SpecialistConfig(name=name)
             session.add(config)
-        
+
         config.role = role
         config.instructions = instructions
-        if model: config.model = model
-        if tools is not None: config.tools = tools
-        
+        if model:
+            config.model = model
+        if tools is not None:
+            config.tools = tools
+
         session.commit()
         return f"✅ Specialist '{name}' saved to registry."
     except Exception as e:
@@ -59,22 +77,28 @@ def save_specialist_config(name: str, role: str, instructions: str, model: str =
     finally:
         session.close()
 
+
 def get_specialist_config(name: str) -> Optional[Dict]:
     """Retrieve a specialist configuration."""
     session = SessionLocal()
     try:
-        config = session.query(SpecialistConfig).filter(SpecialistConfig.name == name).first()
+        config = (
+            session.query(SpecialistConfig)
+            .filter(SpecialistConfig.name == name)
+            .first()
+        )
         if config:
             return {
                 "name": config.name,
                 "role": config.role,
                 "instructions": config.instructions,
                 "model": config.model,
-                "tools": config.tools
+                "tools": config.tools,
             }
         return None
     finally:
         session.close()
+
 
 def list_specialists() -> str:
     """List all registered specialists."""
@@ -83,7 +107,7 @@ def list_specialists() -> str:
         configs = session.query(SpecialistConfig).all()
         if not configs:
             return "No specialists registered."
-        
+
         lines = ["📋 **Specialist Registry**", ""]
         for c in configs:
             lines.append(f"**{c.name}** ({c.model})")

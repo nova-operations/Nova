@@ -2,9 +2,10 @@ import asyncio
 import os
 from nova.agent import get_agent
 
+
 async def run_smoke_test():
     print("🚀 Starting Nova Smoke Test...")
-    
+
     # 1. Test Agent Initialization
     print("📋 Testing Agent Initialization...")
     try:
@@ -37,6 +38,7 @@ async def run_smoke_test():
     except Exception as e:
         print(f"❌ Agent response failed: {e}")
         return False
+
 
 if __name__ == "__main__":
     success = asyncio.run(run_smoke_test())
