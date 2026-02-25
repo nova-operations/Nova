@@ -13,6 +13,7 @@ from nova.tools.mcp_registry import mcp_registry
 from nova.tools.mcp_tools import add_mcp_server, remove_mcp_server, list_registered_mcp_servers
 from nova.logger import setup_logging
 from agno.tools.mcp import MCPTools
+from agno.skills import Skills, LocalSkills
 
 load_dotenv()
 setup_logging()
@@ -61,12 +62,17 @@ def get_agent(model_id: Optional[str] = None):
             "You can execute shell commands and modify files.",
             "Your workspace is in `/app/data/nova_repo`. This is where your source code is mirrored and where you should make changes.",
             "You have access to the Agno MCP Server (`agno_docs`) which provides documentation and tools for the Agno framework. Always use it to look up the best ways to implement/improve your logic.",
-            f"Your persistent skills (custom tools/scripts) should be stored in: {skills_path}",
-            "You can create new python scripts in the skills directory and execute them to perform complex tasks.",
+            f"Your skills are stored in: {skills_path}. You can create new skills by creating subdirectories here with a `SKILL.md` file.",
+            "Each skill directory should contain:",
+            "  1. `SKILL.md`: Instructions with YAML frontmatter (name, description).",
+            "  2. `scripts/`: Python scripts or other tools.",
+            "  3. `references/`: Supporting documentation.",
+            "You can use the `get_skill_instructions`, `get_skill_script`, and `get_skill_reference` tools to discover and use these skills.",
             "You can commit and push changes to your own GitHub repository using the `push_to_github` tool. This will trigger a redeployment.",
             "Always be careful when modifying your own code. Test your changes locally using `python smoke_test.py` before pushing.",
             "If you are asked to improve yourself, analyze the codebase in `/app/data/nova_repo`, make necessary changes, and push them."
         ],
+        skills=Skills(loaders=[LocalSkills(skills_path)]),
         tools=[
             execute_shell_command,
             read_file,
