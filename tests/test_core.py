@@ -11,6 +11,9 @@ from nova.agent import get_agent
 def clean_db():
     # Use a test sqlite DB for tests
     os.environ["DATABASE_URL"] = "sqlite:///test_nova.db"
+    from migrations.migrate import run_migrations
+
+    run_migrations()
     yield
     if os.path.exists("test_nova.db"):
         os.remove("test_nova.db")
@@ -58,13 +61,11 @@ async def test_agent_initialization():
 
 
 def test_db_migration(clean_db):
-    # Test column migration logic
-    from nova.tools.scheduler import init_db
-
-    engine = init_db()
-
+    # Test column existence after migration
+    from nova.db.engine import get_db_engine
     from sqlalchemy import inspect
 
+    engine = get_db_engine()
     inspector = inspect(engine)
     columns = [c["name"] for c in inspector.get_columns("scheduled_tasks")]
     assert "team_members" in columns

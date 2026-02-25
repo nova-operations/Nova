@@ -1,12 +1,10 @@
 import os
 from typing import Optional
-from sqlalchemy import create_engine
 from dotenv import load_dotenv
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
-from agno.db.sqlite import SqliteDb
-from agno.db.postgres import PostgresDb
 from agno.skills import Skills, LocalSkills
+from nova.db.engine import get_agno_db
 
 # Tool imports
 from nova.tools.shell import execute_shell_command
@@ -147,51 +145,7 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
     )
 
     chat_id = chat_id or "unknown"
-
-    database_url = os.getenv("DATABASE_URL")
-    if database_url:
-        if database_url.startswith("postgres://"):
-            database_url = database_url.replace("postgres://", "postgresql://", 1)
-            db = PostgresDb(session_table="nova_agent_sessions", db_url=database_url)
-        elif "sqlite" in database_url:
-            # SQLite
-            # Use create_engine to validate the URL, but still use SqliteDb for Agno
-            try:
-                create_engine(database_url)  # Validate URL
-                db = SqliteDb(
-                    db_file=database_url.replace("sqlite:///", "")
-                )  # Extract path for SqliteDb
-            except Exception as e:
-                print(
-                    f"Warning: Invalid SQLite DATABASE_URL '{database_url}'. Falling back to default SQLite path. Error: {e}"
-                )
-                db_path = os.getenv("SQLITE_DB_PATH", "/app/data/nova_memory.db")
-                os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
-                db = SqliteDb(db_file=db_path)
-        else:
-            # Fallback for other potential types, try to use it as a generic URL for PostgresDb
-            # This might fail if it's not a valid Postgres URL, but allows flexibility
-            try:
-                create_engine(database_url)  # Validate URL
-                db = PostgresDb(
-                    session_table="nova_agent_sessions", db_url=database_url
-                )
-            except Exception as e:
-                print(
-                    f"Warning: DATABASE_URL '{database_url}' is not a recognized type or invalid. Falling back to default SQLite path. Error: {e}"
-                )
-                db_path = os.getenv("SQLITE_DB_PATH", "/app/data/nova_memory.db")
-                os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
-                db = SqliteDb(db_file=db_path)
-    else:
-        # Resolve path locally or in container
-        db_path = os.getenv("SQLITE_DB_PATH", "data/nova_memory.db")
-        try:
-            os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
-        except OSError:
-            # Fallback to current directory if specified path is not writable
-            db_path = "nova_memory.db"
-        db = SqliteDb(db_file=db_path)
+    db = get_agno_db(session_table="nova_agent_sessions")
 
     # Skills paths with local fallbacks
     repo_skills_path = os.getenv("REPO_SKILLS_PATH", "data/nova_repo/skills")

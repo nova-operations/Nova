@@ -1,14 +1,11 @@
-import os
 import json
 from typing import List, Dict
-from sqlalchemy import create_engine, Column, String, JSON
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import Column, String, JSON
+from nova.db.base import Base
+from nova.db.engine import get_session_factory
 from nova.logger import setup_logging
 
 setup_logging()
-
-Base = declarative_base()
 
 
 class MCPServerConfig(Base):
@@ -23,57 +20,7 @@ class MCPServerConfig(Base):
 
 class MCPRegistry:
     def __init__(self):
-        database_url = os.getenv("DATABASE_URL")
-        if not database_url:
-            db_path = os.getenv("SQLITE_DB_PATH", "data/nova_memory.db")
-            try:
-                os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
-            except OSError:
-                db_path = "nova_memory.db"
-            database_url = f"sqlite:///{db_path}"
-
-        # SQLAlchemy handles postgres:// vs postgresql:// for us if we use the right driver,
-        # but for consistency we ensure it.
-        if database_url.startswith("postgres://"):
-            database_url = database_url.replace("postgres://", "postgresql://", 1)
-
-        self.engine = create_engine(database_url)
-        self._migrate_old_table()
-        Base.metadata.create_all(self.engine)
-        self.Session = sessionmaker(bind=self.engine)
-
-    def _migrate_old_table(self):
-        """Migrates data from old mcp_servers to new nova_mcp_servers if it exists."""
-        from sqlalchemy import text, inspect
-
-        inspector = inspect(self.engine)
-        tables = inspector.get_table_names()
-
-        if "mcp_servers" in tables and "nova_mcp_servers" not in tables:
-            print("🚀 Migrating old mcp_servers table to nova_mcp_servers...")
-            try:
-                # Create the new table first
-                Base.metadata.create_all(self.engine)
-                with self.engine.begin() as conn:
-                    # Copy data
-                    conn.execute(
-                        text(
-                            "INSERT INTO nova_mcp_servers (name, transport, url, command, args, env) "
-                            "SELECT name, transport, url, command, args, env FROM mcp_servers"
-                        )
-                    )
-                    # Drop old table
-                    conn.execute(text("DROP TABLE mcp_servers"))
-                print("✅ Migration complete.")
-            except Exception as e:
-                print(f"⚠️ Migration failed (probably already done or empty): {e}")
-        elif "mcp_servers" in tables:
-            # Just drop it if both exist and we are sure
-            try:
-                with self.engine.begin() as conn:
-                    conn.execute(text("DROP TABLE IF EXISTS mcp_servers"))
-            except:
-                pass
+        self.Session = get_session_factory()
 
     def register_server(
         self,

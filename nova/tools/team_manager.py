@@ -5,8 +5,7 @@ from typing import List, Optional, Dict
 from agno.agent import Agent
 from agno.team import Team
 from agno.models.openai import OpenAIChat
-from agno.db.postgres import PostgresDb
-from agno.db.sqlite import SqliteDb
+from nova.db.engine import get_agno_db
 from nova.tools.specialist_registry import get_specialist_config
 from nova.tools.registry import get_tools_by_names
 from nova.tools.heartbeat import register_subagent_for_heartbeat
@@ -35,14 +34,7 @@ def create_specialist_agent(
     tools = get_tools_by_names(config["tools"])
 
     # DB setup for persistent specialist memory
-    database_url = os.getenv("DATABASE_URL")
-    db = None
-    if database_url:
-        if database_url.startswith("postgres://"):
-            database_url = database_url.replace("postgres://", "postgresql://", 1)
-        db = PostgresDb(
-            session_table=f"specialist_{name}_sessions", db_url=database_url
-        )
+    db = get_agno_db(session_table=f"specialist_{name}_sessions")
 
     return Agent(
         name=config["name"],

@@ -1,15 +1,12 @@
 import os
-import json
 from typing import List, Dict, Optional
-from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import Column, Integer, String, Text, DateTime, JSON
 from datetime import datetime
+from nova.db.base import Base
+from nova.db.engine import get_session_factory
 from dotenv import load_dotenv
 
 load_dotenv()
-
-Base = declarative_base()
 
 
 class SpecialistConfig(Base):
@@ -27,24 +24,8 @@ class SpecialistConfig(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
-def get_db_engine():
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        db_path = os.getenv("SQLITE_DB_PATH", "data/nova_memory.db")
-        try:
-            os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
-        except OSError:
-            db_path = "nova_memory.db"
-        return create_engine(f"sqlite:///{db_path}")
-    if database_url.startswith("postgres://"):
-        database_url = database_url.replace("postgres://", "postgresql://", 1)
-    return create_engine(database_url)
-
-
-# Initialization
-engine = get_db_engine()
-Base.metadata.create_all(engine)
-SessionLocal = sessionmaker(bind=engine)
+# Session Factory
+SessionLocal = get_session_factory()
 
 
 def save_specialist_config(

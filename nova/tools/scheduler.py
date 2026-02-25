@@ -15,25 +15,16 @@ import logging
 import subprocess
 from datetime import datetime
 from typing import Optional, Dict, Any, List
+import enum
 from croniter import croniter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
-from sqlalchemy import (
-    create_engine,
-    Column,
-    Integer,
-    String,
-    Boolean,
-    DateTime,
-    Text,
-    Enum,
-    JSON,
-)
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Enum, JSON
+from sqlalchemy.orm import sessionmaker
+from nova.db.base import Base
+from nova.db.engine import get_db_engine, get_session_factory
 from dotenv import load_dotenv
-import enum
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -41,8 +32,6 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # DATABASE SCHEMA
 # ============================================================================
-
-Base = declarative_base()
 
 
 class TaskStatus(str, enum.Enum):
@@ -91,67 +80,8 @@ class ScheduledTask(Base):
 # ============================================================================
 
 
-def get_db_engine():
-    """Create SQLAlchemy engine from DATABASE_URL with fallback."""
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        db_path = os.getenv("SQLITE_DB_PATH", "data/nova_memory.db")
-        try:
-            os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
-        except OSError:
-            db_path = "nova_memory.db"
-        database_url = f"sqlite:///{db_path}"
-
-    # Convert postgres:// to postgresql://
-    if database_url.startswith("postgres://"):
-        database_url = database_url.replace("postgres://", "postgresql://", 1)
-
-    # Use appropriate engine
-    if database_url.startswith("postgresql://"):
-        engine = create_engine(database_url, pool_pre_ping=True, echo=False)
-    else:
-        # SQLite or other
-        engine = create_engine(database_url)
-
-    return engine
-
-
-def init_db():
-    """Initialize the database tables and run migrations."""
-    engine = get_db_engine()
-    Base.metadata.create_all(engine)
-
-    # Also ensure specialist registry table is created (sharing engine)
-    try:
-        from nova.tools.specialist_registry import Base as SpecialistBase
-
-        SpecialistBase.metadata.create_all(engine)
-    except Exception as e:
-        logger.warning(f"Could not initialize specialist registry tables: {e}")
-
-    # Manual migration for team_members column if it doesn't exist
-    from sqlalchemy import inspect, text
-
-    inspector = inspect(engine)
-
-    # Safer check using inspector
-    columns = [c["name"] for c in inspector.get_columns("scheduled_tasks")]
-    if "team_members" not in columns:
-        logger.info("Adding team_members column to scheduled_tasks table...")
-        with engine.begin() as conn:  # engine.begin() handles transaction start/commit
-            try:
-                # Use JSONB for Postgres if possible, fallback to JSON
-                col_type = "JSONB" if "postgresql" in str(engine.url) else "JSON"
-                conn.execute(
-                    text(
-                        f"ALTER TABLE scheduled_tasks ADD COLUMN team_members {col_type}"
-                    )
-                )
-                logger.info("✅ Successfully added team_members column.")
-            except Exception as e:
-                logger.error(f"Failed to add team_members column: {e}")
-
-    return engine
+# Session Factory
+SessionLocal = get_session_factory()
 
 
 # ============================================================================
@@ -172,7 +102,6 @@ def get_scheduler() -> AsyncIOScheduler:
 
     # Create database engine for job store
     engine = get_db_engine()
-
     jobstores = {
         "default": SQLAlchemyJobStore(
             engine=engine, metadata=Base.metadata, tablename="apscheduler_jobs"
@@ -340,8 +269,7 @@ async def _job_executor(job):
     job_id = job.id
 
     # Get job data from database
-    engine = get_db_engine()
-    SessionLocal = sessionmaker(bind=engine)
+
     db = SessionLocal()
 
     try:
@@ -477,8 +405,7 @@ def add_scheduled_task(
         return "Error: subagent_task required for subagent_recall task"
 
     # Save to database
-    engine = get_db_engine()
-    SessionLocal = sessionmaker(bind=engine)
+
     db = SessionLocal()
 
     try:
@@ -525,8 +452,7 @@ def add_scheduled_task(
 
 def list_scheduled_tasks() -> str:
     """List all scheduled tasks."""
-    engine = get_db_engine()
-    SessionLocal = sessionmaker(bind=engine)
+
     db = SessionLocal()
 
     try:
@@ -559,8 +485,7 @@ def list_scheduled_tasks() -> str:
 
 def get_scheduled_task(task_name: str) -> str:
     """Get details of a specific scheduled task."""
-    engine = get_db_engine()
-    SessionLocal = sessionmaker(bind=engine)
+
     db = SessionLocal()
 
     try:
@@ -615,8 +540,7 @@ def update_scheduled_task(
     notification_enabled: Optional[bool] = None,
 ) -> str:
     """Update an existing scheduled task."""
-    engine = get_db_engine()
-    SessionLocal = sessionmaker(bind=engine)
+
     db = SessionLocal()
 
     try:
@@ -677,8 +601,7 @@ def update_scheduled_task(
 
 def remove_scheduled_task(task_name: str) -> str:
     """Remove a scheduled task."""
-    engine = get_db_engine()
-    SessionLocal = sessionmaker(bind=engine)
+
     db = SessionLocal()
 
     try:
@@ -711,8 +634,7 @@ def remove_scheduled_task(task_name: str) -> str:
 
 def pause_scheduled_task(task_name: str) -> str:
     """Pause a scheduled task."""
-    engine = get_db_engine()
-    SessionLocal = sessionmaker(bind=engine)
+
     db = SessionLocal()
 
     try:
@@ -743,8 +665,7 @@ def pause_scheduled_task(task_name: str) -> str:
 
 def resume_scheduled_task(task_name: str) -> str:
     """Resume a paused scheduled task."""
-    engine = get_db_engine()
-    SessionLocal = sessionmaker(bind=engine)
+
     db = SessionLocal()
 
     try:
@@ -781,8 +702,7 @@ def resume_scheduled_task(task_name: str) -> str:
 
 def run_scheduled_task_now(task_name: str) -> str:
     """Manually trigger a scheduled task immediately."""
-    engine = get_db_engine()
-    SessionLocal = sessionmaker(bind=engine)
+
     db = SessionLocal()
 
     try:
@@ -811,7 +731,9 @@ def start_scheduler() -> str:
     """Start the scheduler background service."""
     try:
         # Initialize database
-        init_db()
+        from migrations.migrate import run_migrations
+
+        run_migrations()
 
         # Get scheduler
         scheduler = get_scheduler()
@@ -820,8 +742,7 @@ def start_scheduler() -> str:
             return "Scheduler is already running."
 
         # Add existing active tasks from database
-        engine = get_db_engine()
-        SessionLocal = sessionmaker(bind=engine)
+
         db = SessionLocal()
 
         try:
