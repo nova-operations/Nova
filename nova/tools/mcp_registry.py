@@ -1,7 +1,7 @@
 import os
 import json
 from typing import List, Dict, Optional
-from sqlalchemy import create_engine, Column, String, Text, inspect
+from sqlalchemy import create_engine, Column, String, Text, inspect, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from nova.logger import setup_logging
@@ -15,9 +15,9 @@ class MCPServerConfig(Base):
     name = Column(String(255), primary_key=True)
     transport = Column(String(50), default="stdio") # stdio or streamable-http
     command = Column(String(255))
-    args = Column(Text) # JSON string
+    args = Column(JSON, default=list) 
     url = Column(String(255))
-    env = Column(Text) # JSON string
+    env = Column(JSON, default=dict)
 
 class MCPRegistry:
     def __init__(self):
@@ -34,8 +34,36 @@ class MCPRegistry:
             database_url = database_url.replace("postgres://", "postgresql://", 1)
             
         self.engine = create_engine(database_url)
+        self._migrate_old_table()
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
+
+    def _migrate_old_table(self):
+        """Migrates data from old mcp_servers to new nova_mcp_servers if it exists."""
+        from sqlalchemy import text, inspect
+        inspector = inspect(self.engine)
+        tables = inspector.get_table_names()
+        
+        if "mcp_servers" in tables and "nova_mcp_servers" not in tables:
+            print("🚀 Migrating old mcp_servers table to nova_mcp_servers...")
+            try:
+                # Create the new table first
+                Base.metadata.create_all(self.engine)
+                with self.engine.begin() as conn:
+                    # Copy data
+                    conn.execute(text("INSERT INTO nova_mcp_servers (name, transport, url, command, args, env) "
+                                      "SELECT name, transport, url, command, args, env FROM mcp_servers"))
+                    # Drop old table
+                    conn.execute(text("DROP TABLE mcp_servers"))
+                print("✅ Migration complete.")
+            except Exception as e:
+                print(f"⚠️ Migration failed (probably already done or empty): {e}")
+        elif "mcp_servers" in tables:
+             # Just drop it if both exist and we are sure
+             try:
+                 with self.engine.begin() as conn:
+                     conn.execute(text("DROP TABLE IF EXISTS mcp_servers"))
+             except: pass
 
     def register_server(self, name: str, transport: str = "stdio", command: str = None, args: List[str] = None, url: str = None, env: Dict[str, str] = None) -> str:
         session = self.Session()
@@ -47,9 +75,9 @@ class MCPRegistry:
             
             config.transport = transport
             config.command = command
-            config.args = json.dumps(args) if args else "[]"
+            config.args = args if args else []
             config.url = url
-            config.env = json.dumps(env) if env else "{}"
+            config.env = env if env else {}
             
             session.commit()
             return f"MCP Server '{name}' registered successfully."
@@ -67,9 +95,9 @@ class MCPRegistry:
                 "name": s.name,
                 "transport": s.transport,
                 "command": s.command,
-                "args": json.loads(s.args),
+                "args": s.args if isinstance(s.args, list) else json.loads(s.args or "[]"),
                 "url": s.url,
-                "env": json.loads(s.env)
+                "env": s.env if isinstance(s.env, dict) else json.loads(s.env or "{}")
             } for s in servers]
         finally:
             session.close()
