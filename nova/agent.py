@@ -196,41 +196,50 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
         cache_session=True, 
     )
 
-    # Initialize MCP Registry and Tools
+    # Standard Agno Docs MCP
     try:
-        # Standard Agno Docs MCP
         if StreamableHTTPClientParams:
-            agent.tools.append(MCPTools(server_params=StreamableHTTPClientParams(url="https://docs.agno.com/mcp")))
+            agent.tools.append(MCPTools(
+                name="agno_docs",
+                server_params=StreamableHTTPClientParams(url="https://docs.agno.com/mcp", timeout=60)
+            ))
         else:
-            agent.tools.append(MCPTools(url="https://docs.agno.com/mcp"))
+            agent.tools.append(MCPTools(name="agno_docs", url="https://docs.agno.com/mcp"))
+    except Exception as e:
+        print(f"Warning: Failed to load Agno Docs MCP: {e}")
 
-        # Load custom MCPs from Postgres/Registry
+    # Load custom MCPs from Postgres/Registry
+    try:
         registered_servers = mcp_registry.list_servers()
         for s in registered_servers:
-            if s['transport'] == "stdio":
-                if StdioServerParameters:
-                    server_params = StdioServerParameters(
-                        command=s['command'],
-                        args=s['args'],
-                        env=s['env'] or os.environ.copy()
-                    )
-                    agent.tools.append(MCPTools(server_params=server_params))
-                else:
-                    cmd = s['command']
-                    if s.get('args'):
-                        cmd += " " + " ".join(s['args'])
-                    agent.tools.append(MCPTools(command=cmd, env=s.get('env')))
-            elif s['transport'] == "streamable-http":
-                if StreamableHTTPClientParams:
-                    server_params = StreamableHTTPClientParams(
-                        url=s['url'],
-                        headers=s.get('env')
-                    )
-                    agent.tools.append(MCPTools(server_params=server_params))
-                else:
-                    agent.tools.append(MCPTools(url=s['url']))
+            try:
+                if s['transport'] == "stdio":
+                    if StdioServerParameters:
+                        server_params = StdioServerParameters(
+                            command=s['command'],
+                            args=s['args'],
+                            env=s['env'] or os.environ.copy()
+                        )
+                        agent.tools.append(MCPTools(name=s['name'], server_params=server_params))
+                    else:
+                        cmd = s['command']
+                        if s.get('args'):
+                            cmd += " " + " ".join(s['args'])
+                        agent.tools.append(MCPTools(name=s['name'], command=cmd, env=s.get('env')))
+                elif s['transport'] == "streamable-http":
+                    if StreamableHTTPClientParams:
+                        server_params = StreamableHTTPClientParams(
+                            url=s['url'],
+                            headers=s.get('env'),
+                            timeout=60
+                        )
+                        agent.tools.append(MCPTools(name=s['name'], server_params=server_params))
+                    else:
+                        agent.tools.append(MCPTools(name=s['name'], url=s['url']))
+            except Exception as e:
+                print(f"Warning: Failed to load MCP server {s.get('name')}: {e}")
     except Exception as e:
-        print(f"Error loading MCP tools: {e}")
+        print(f"Warning: Failed to list registered MCP servers: {e}")
     
     return agent
 

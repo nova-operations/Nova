@@ -96,9 +96,26 @@ def get_db_engine():
 
 
 def init_db():
-    """Initialize the database tables."""
+    """Initialize the database tables and run migrations."""
     engine = get_db_engine()
     Base.metadata.create_all(engine)
+    
+    # Manual migration for team_members column if it doesn't exist
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            # Check if column exists
+            result = conn.execute(text("SELECT team_members FROM scheduled_tasks LIMIT 1"))
+            result.fetchone()
+        except Exception:
+            # Column likely missing, attempt to add it
+            try:
+                logger.info("Adding team_members column to scheduled_tasks table...")
+                conn.execute(text("ALTER TABLE scheduled_tasks ADD COLUMN team_members JSON"))
+                conn.commit()
+            except Exception as e:
+                logger.error(f"Failed to add team_members column: {e}")
+    
     return engine
 
 
