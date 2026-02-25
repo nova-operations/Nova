@@ -60,6 +60,7 @@ def get_agent(model_id: Optional[str] = None):
             "You have access to tools that allow you to interact with your environment.",
             "You can execute shell commands and modify files.",
             "Your workspace is in `/app/data/nova_repo`. This is where your source code is mirrored and where you should make changes.",
+            "You have access to the Agno MCP Server (`agno_docs`) which provides documentation and tools for the Agno framework. Always use it to look up the best ways to implement/improve your logic.",
             f"Your persistent skills (custom tools/scripts) should be stored in: {skills_path}",
             "You can create new python scripts in the skills directory and execute them to perform complex tasks.",
             "You can commit and push changes to your own GitHub repository using the `push_to_github` tool. This will trigger a redeployment.",
@@ -91,6 +92,13 @@ def get_agent(model_id: Optional[str] = None):
 
     # Dynamically add MCP tools from registry
     try:
+        # Add default Agno MCP tools for self-improvement guidance
+        agent.tools.append(MCPTools(
+            name="agno_docs",
+            transport="streamable-http",
+            url="https://docs.agno.com/mcp"
+        ))
+
         registered_servers = mcp_registry.list_servers()
         for s in registered_servers:
             mcp_kwargs = {
