@@ -18,13 +18,6 @@ COPY . .
 # Ensure start script is executable
 RUN chmod +x start.sh
 
-# Create non-root user and set proper ownership
-RUN useradd -m -s /bin/bash nova && \
-    chown -R nova:nova /app
-
-# Switch to non-root user
-USER nova
-
 # Set environment variables (these should be overridden by Railway variables)
 ENV PYTHONUNBUFFERED=1
 
