@@ -20,9 +20,6 @@ from nova.tools.filesystem import (
 )
 from nova.tools.github_tools import push_to_github, pull_latest_changes
 
-# Import heartbeat integration
-from nova.tools.heartbeat_integration import auto_register_with_heartbeat
-
 # Import long message handler for PDF conversion
 from nova.long_message_handler import (
     send_message_with_fallback,
@@ -336,9 +333,10 @@ async def create_subagent(
         "chat_id": chat_id,
     }
 
-    # Automatically register with heartbeat monitoring
-    heartbeat_msg = auto_register_with_heartbeat(subagent_id, name, chat_id=chat_id)
-    logging.info(f"Heartbeat registration: {heartbeat_msg}")
+    # Heartbeat monitoring disabled - using streaming updates instead
+    # heartbeat_msg = auto_register_with_heartbeat(subagent_id, name, chat_id=chat_id)
+    # logging.info(f"Heartbeat registration: {heartbeat_msg}")
+    logging.info(f"Subagent '{name}' created - using streaming updates instead of heartbeat")
 
     # Proactive notification - also send streaming start
     if chat_id:
@@ -349,7 +347,7 @@ async def create_subagent(
         # Also send streaming start notification
         asyncio.create_task(send_streaming_start(chat_id, name))
 
-    return f"Subagent '{name}' created with ID: {subagent_id}\n{heartbeat_msg}"
+    return f"Subagent '{name}' created with ID: {subagent_id}"
 
 
 def list_subagents() -> str:

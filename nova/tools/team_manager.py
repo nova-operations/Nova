@@ -8,7 +8,6 @@ from agno.models.openai import OpenAIChat
 from nova.db.engine import get_agno_db
 from nova.tools.specialist_registry import get_specialist_config
 from nova.tools.registry import get_tools_by_names
-from nova.tools.heartbeat import register_subagent_for_heartbeat
 from nova.tools.subagent import SUBAGENTS
 from nova.tools.streaming_utils import (
     send_streaming_start,
@@ -63,7 +62,7 @@ async def run_team_task(
 ) -> str:
     """
     Creates a dynamic team and runs a task asynchronously.
-    Integrates with the heartbeat system and streaming updates.
+    Uses streaming updates instead of heartbeat system.
     """
     try:
         # Build specialists
@@ -89,10 +88,11 @@ async def run_team_task(
 
         subagent_id = f"team_{task_name}_{asyncio.get_event_loop().time():.0f}"
 
-        # Register for heartbeat
-        register_subagent_for_heartbeat(
-            subagent_id, f"Team: {task_name}", chat_id=chat_id
-        )
+        # Heartbeat monitoring disabled - using streaming updates instead
+        # register_subagent_for_heartbeat(
+        #     subagent_id, f"Team: {task_name}", chat_id=chat_id
+        # )
+        logger.info(f"Team task '{task_name}' created - using streaming updates instead of heartbeat")
 
         # Store in global tracking
         SUBAGENTS[subagent_id] = {

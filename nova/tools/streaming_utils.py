@@ -9,7 +9,7 @@ from typing import Optional, Callable, Awaitable
 logger = logging.getLogger(__name__)
 
 # Standard header format for streaming messages
-STREAM_HEADER = "[SUBAGENT UPDATE: {name}]"
+STREAM_HEADER = "[SAU: {name}]"
 
 # Target chat_id for live updates (default: 98746403)
 DEFAULT_CHAT_ID = "98746403"
