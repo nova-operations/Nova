@@ -31,7 +31,7 @@ def get_agent(model_id: Optional[str] = None):
 
     database_url = os.getenv("DATABASE_URL")
     if database_url and (database_url.startswith("postgresql://") or database_url.startswith("postgres://")):
-        db = PostgresDb(table_name="nova_agent_sessions", db_url=database_url)
+        db = PostgresDb(session_table="nova_agent_sessions", db_url=database_url)
     else:
         # Use persistent path for DB if available (e.g. Railway volume at /app/data)
         # If /app/data doesn't exist, fallback to local dir
