@@ -2,9 +2,11 @@ import pytest
 import os
 import json
 import asyncio
+from datetime import timedelta
+from unittest.mock import patch
 from nova.tools.mcp_registry import mcp_registry
 from nova.tools.specialist_registry import save_specialist_config, get_specialist_config
-from nova.agent import get_agent
+from nova.agent import get_agent, get_mcp_toolkits
 
 
 @pytest.fixture
@@ -73,18 +75,35 @@ def test_db_migration(clean_db):
 
 @pytest.mark.asyncio
 async def test_multi_mcp_initialization(clean_db):
-    # Register two dummy MCP servers (using streamable-http with fake URLs to fast-fail)
+    # Register two dummy MCP servers (using streamable-http with fake URLs)
     mcp_registry.register_server(
         "mcp1", "streamable-http", url="http://localhost:1234/mcp"
     )
-    mcp_registry.register_server(
-        "mcp2", "streamable-http", url="http://localhost:5678/mcp"
+    mcp_registry.register_server("mcp2", "stdio", command="python3", args=["--version"])
+
+    # Clear cache and get toolkits
+    with patch("nova.agent._CACHED_TOOLS", None):
+        toolkits = get_mcp_toolkits()
+
+    assert len(toolkits) >= 3  # Agno Docs + our 2 custom
+
+    # Find and verify our toolkits
+    mcp1_tool = next(
+        t for t in toolkits if getattr(t, "tool_name_prefix", None) == "mcp1"
+    )
+    mcp2_tool = next(
+        t for t in toolkits if getattr(t, "tool_name_prefix", None) == "mcp2"
     )
 
-    # This shouldn't raise "multiple values for keyword argument 'name'"
-    # and should be relatively resilient.
+    # Verify transport and params
+    assert mcp1_tool.transport == "streamable-http"
+    assert mcp1_tool.server_params.url == "http://localhost:1234/mcp"
+    assert isinstance(mcp1_tool.server_params.timeout, timedelta)
+
+    assert mcp2_tool.transport == "stdio"
+    assert mcp2_tool.server_params.command == "python3"
+    assert mcp2_tool.server_params.args == ["--version"]
+
+    # Finally check agent creation
     agent = get_agent(chat_id="test_chat")
     assert agent is not None
-    # Check that both were added (agno_docs might also be there)
-    # The actual initialization happens when tools are called or during arun,
-    # but the creation happens in get_agent.

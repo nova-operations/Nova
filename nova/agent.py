@@ -115,7 +115,11 @@ def get_mcp_toolkits():
                         env=s["env"] or os.environ.copy(),
                     )
                     toolkits.append(
-                        MCPTools(server_params=params, tool_name_prefix=name)
+                        MCPTools(
+                            server_params=params,
+                            transport="stdio",
+                            tool_name_prefix=name,
+                        )
                     )
                 else:
                     params = StreamableHTTPClientParams(
@@ -124,7 +128,11 @@ def get_mcp_toolkits():
                         timeout=timedelta(seconds=120),
                     )
                     toolkits.append(
-                        MCPTools(server_params=params, tool_name_prefix=name)
+                        MCPTools(
+                            server_params=params,
+                            transport="streamable-http",
+                            tool_name_prefix=name,
+                        )
                     )
             except Exception as e:
                 print(f"❌ Error setting up MCP server {s.get('name')}: {e}")
