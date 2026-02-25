@@ -11,18 +11,40 @@ logging.basicConfig(
     level=logging.INFO
 )
 
+def is_authorized(user_id: int) -> bool:
+    """Checks if the user is in the authorized whitelist."""
+    whitelist_str = os.getenv("TELEGRAM_USER_WHITELIST", "")
+    if not whitelist_str:
+        # If no whitelist is defined, allow everyone by default, 
+        # but warn in logs.
+        logging.warning("TELEGRAM_USER_WHITELIST is not set. Bot is open to everyone.")
+        return True
+    
+    whitelist = [sid.strip() for sid in whitelist_str.split(",") if sid.strip()]
+    return str(user_id) in whitelist
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_authorized(user_id):
+        logging.warning(f"Unauthorized access attempt by user_id: {user_id}")
+        return
+
     await context.bot.send_message(
         chat_id=update.effective_chat.id, 
-        text="Hello! I am Nova. I can run commands, manage files, and spawn subagents. How can I help you?"
+        text=f"Hello! I am Nova (User ID: {user_id}). I can run commands, manage files, and spawn subagents. How can I help you?"
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_authorized(user_id):
+        logging.warning(f"Unauthorized message from user_id: {user_id}")
+        return
+
     user_message = update.message.text
     chat_id = update.effective_chat.id
     
-    # Use chat_id as session_id
-    session_id = str(chat_id)
+    # Use user_id as session_id for consistency in authorization
+    session_id = str(user_id)
     
     # We instantiate the agent per message to ensure clean state for the session config if needed,
     # but the underlying tools and DB connections should be handled efficiently.

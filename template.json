@@ -12,6 +12,10 @@
                     "description": "Get from @BotFather on Telegram",
                     "required": true
                 },
+                "TELEGRAM_USER_WHITELIST": {
+                    "description": "Comma-separated Telegram User IDs allowed to use the bot",
+                    "required": false
+                },
                 "OPENROUTER_API_KEY": {
                     "description": "Your OpenRouter API Key",
                     "required": true
