@@ -57,7 +57,7 @@ from nova.tools.team_manager import run_team_task
 from nova.logger import setup_logging
 
 try:
-    from agno.tools.mcp import MCPTools, StreamableHTTPClientParams
+    from agno.tools.mcp import MCPTools, MultiMCPTools, StreamableHTTPClientParams
 
     try:
         from agno.tools.mcp import StdioServerParameters
@@ -67,7 +67,7 @@ try:
         except ImportError:
             StdioServerParameters = None
 except ImportError:
-    from agno.tools.mcp import MCPTools
+    from agno.tools.mcp import MCPTools, MultiMCPTools
 
     StreamableHTTPClientParams = None
     StdioServerParameters = None
@@ -102,47 +102,48 @@ def get_mcp_toolkits():
     # 2. Custom MCPs from Registry
     try:
         registered_servers = mcp_registry.list_servers()
-        for s in registered_servers:
-            try:
+        if registered_servers:
+            print(f"📡 Found {len(registered_servers)} MCP servers in registry.")
+            server_params_list = []
+            for s in registered_servers:
                 name = s.get("name", "unknown")
                 if name == "agno_docs":
-                    continue  # skip redundant
+                    continue
 
-                print(f"🔌 Initializing MCP Server: {name}...")
-                if s["transport"] == "stdio":
-                    params = StdioServerParameters(
-                        command=s["command"],
-                        args=s["args"],
-                        env=s["env"] or os.environ.copy(),
-                    )
+                try:
+                    if s["transport"] == "stdio":
+                        if StdioServerParameters:
+                            params = StdioServerParameters(
+                                command=s["command"],
+                                args=s["args"],
+                                env=s["env"] or os.environ.copy(),
+                            )
+                            server_params_list.append(params)
+                    else:
+                        if StreamableHTTPClientParams:
+                            params = StreamableHTTPClientParams(
+                                url=s["url"],
+                                headers=s.get("env"),
+                                timeout=timedelta(seconds=120),
+                            )
+                            server_params_list.append(params)
+                except Exception as e:
+                    print(f"❌ Error preparing params for MCP {name}: {e}")
+
+            if server_params_list:
+                try:
                     toolkits.append(
-                        MCPTools(
-                            server_params=params,
-                            transport="stdio",
-                            tool_name_prefix=name,
+                        MultiMCPTools(
+                            server_params_list=server_params_list,
+                            allow_partial_failure=True,
                             timeout_seconds=120,
                         )
                     )
-                else:
-                    params = StreamableHTTPClientParams(
-                        url=s["url"],
-                        headers=s.get("env"),
-                        timeout=timedelta(seconds=120),
+                    print(
+                        f"✅ MultiMCPToolkit added for {len(server_params_list)} servers."
                     )
-                    toolkits.append(
-                        MCPTools(
-                            server_params=params,
-                            transport="streamable-http",
-                            tool_name_prefix=name,
-                            timeout_seconds=120,
-                        )
-                    )
-            except asyncio.CancelledError:
-                print(
-                    f"⚠️ Warning: MCP server {s.get('name')} setup cancelled (timeout)."
-                )
-            except Exception as e:
-                print(f"❌ Error setting up MCP server {s.get('name')}: {e}")
+                except Exception as e:
+                    print(f"❌ Error creating MultiMCPToolkit: {e}")
     except Exception as e:
         print(f"⚠️ Warning: Registry error: {e}")
 

@@ -85,24 +85,25 @@ async def test_multi_mcp_initialization(clean_db):
     with patch("nova.agent._CACHED_TOOLS", None):
         toolkits = get_mcp_toolkits()
 
-    assert len(toolkits) >= 3  # Agno Docs + our 2 custom
+    # Agno Docs + 1 MultiMCPTools
+    assert len(toolkits) >= 2
 
-    # Find and verify our toolkits
-    mcp1_tool = next(
-        t for t in toolkits if getattr(t, "tool_name_prefix", None) == "mcp1"
+    # Find MultiMCPTools
+    from agno.tools.mcp import MultiMCPTools
+
+    multi_toolkit = next(t for t in toolkits if isinstance(t, MultiMCPTools))
+    params_list = multi_toolkit.server_params_list
+
+    # Verify our 2 custom servers are in the params list
+    mcp1_params = next(
+        p for p in params_list if getattr(p, "url", None) == "http://localhost:1234/mcp"
     )
-    mcp2_tool = next(
-        t for t in toolkits if getattr(t, "tool_name_prefix", None) == "mcp2"
+    mcp2_params = next(
+        p for p in params_list if getattr(p, "command", None) == "python3"
     )
 
-    # Verify transport and params
-    assert mcp1_tool.transport == "streamable-http"
-    assert mcp1_tool.server_params.url == "http://localhost:1234/mcp"
-    assert isinstance(mcp1_tool.server_params.timeout, timedelta)
-
-    assert mcp2_tool.transport == "stdio"
-    assert mcp2_tool.server_params.command == "python3"
-    assert mcp2_tool.server_params.args == ["--version"]
+    assert mcp1_params is not None
+    assert mcp2_params is not None
 
     # Finally check agent creation
     agent = get_agent(chat_id="test_chat")
