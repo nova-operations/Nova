@@ -10,6 +10,13 @@ from nova.tools.specialist_registry import get_specialist_config
 from nova.tools.registry import get_tools_by_names
 from nova.tools.heartbeat import register_subagent_for_heartbeat
 from nova.tools.subagent import SUBAGENTS
+from nova.tools.streaming_utils import (
+    send_streaming_start,
+    send_streaming_progress,
+    send_streaming_complete,
+    send_streaming_error,
+    StreamingContext
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +63,7 @@ async def run_team_task(
 ) -> str:
     """
     Creates a dynamic team and runs a task asynchronously.
-    Integrates with the heartbeat system.
+    Integrates with the heartbeat system and streaming updates.
     """
     try:
         # Build specialists
@@ -95,15 +102,26 @@ async def run_team_task(
             "chat_id": chat_id,
         }
 
-        # Run in background via task
+        # Run in background via task with streaming updates
         async def _team_runner():
-            try:
-                response = await team.arun(task_description)
-                SUBAGENTS[subagent_id]["status"] = "completed"
-                SUBAGENTS[subagent_id]["result"] = response.content
-            except Exception as e:
-                SUBAGENTS[subagent_id]["status"] = "failed"
-                SUBAGENTS[subagent_id]["result"] = f"Error: {str(e)}"
+            # Create streaming context for the team
+            async with StreamingContext(chat_id, f"Team: {task_name}", auto_complete=False) as stream:
+                try:
+                    await stream.send(f"Initializing {len(members)} specialists...")
+                    
+                    response = await team.arun(task_description)
+                    
+                    SUBAGENTS[subagent_id]["status"] = "completed"
+                    SUBAGENTS[subagent_id]["result"] = response.content
+                    
+                    await stream.send("Team task completed successfully!")
+                    
+                except Exception as e:
+                    error_msg = str(e)
+                    SUBAGENTS[subagent_id]["status"] = "failed"
+                    SUBAGENTS[subagent_id]["result"] = f"Error: {error_msg}"
+                    
+                    await stream.send(f"Team task failed: {error_msg}", msg_type="error")
 
         if chat_id:
             from nova.telegram_bot import notify_user
@@ -113,6 +131,11 @@ async def run_team_task(
                     chat_id,
                     f"👥 <b>Starting Team Task:</b> {task_name} ({len(members)} specialists)",
                 )
+            )
+            
+            # Also send streaming start notification
+            asyncio.create_task(
+                send_streaming_start(chat_id, f"Team: {task_name}")
             )
 
         asyncio.create_task(_team_runner())

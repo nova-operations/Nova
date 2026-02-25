@@ -1,0 +1,176 @@
+"""
+Streaming update utilities for subagents.
+Provides real-time progress notifications to Telegram users.
+"""
+import asyncio
+import logging
+from typing import Optional, Callable, Awaitable
+
+logger = logging.getLogger(__name__)
+
+# Standard header format for streaming messages
+STREAM_HEADER = "[SUBAGENT UPDATE: {name}]"
+
+# Target chat_id for live updates (default: 98746403)
+DEFAULT_CHAT_ID = "98746403"
+
+
+async def send_live_update(
+    message: str,
+    chat_id: Optional[str] = None,
+    subagent_name: str = "Unknown",
+    message_type: str = "update"
+) -> bool:
+    """
+    Send a live streaming update to the user via Telegram.
+    
+    Args:
+        message: The update message content
+        chat_id: Target Telegram chat ID (defaults to 98746403)
+        subagent_name: Name of the subagent sending the update
+        message_type: Type of update (update, start, progress, complete, error)
+        
+    Returns:
+        True if message sent successfully, False otherwise
+    """
+    if chat_id is None:
+        chat_id = DEFAULT_CHAT_ID
+    
+    # Format with standard header
+    header = STREAM_HEADER.format(name=subagent_name)
+    
+    # Add appropriate emoji based on message type
+    type_emoji = {
+        "start": "🚀",
+        "progress": "⚙️",
+        "update": "📝",
+        "complete": "✅",
+        "error": "❌",
+        "warning": "⚠️"
+    }
+    emoji = type_emoji.get(message_type, "📝")
+    
+    formatted_message = f"{emoji} {header} {message}"
+    
+    try:
+        from nova.telegram_bot import telegram_bot_instance
+        
+        if not telegram_bot_instance:
+            logger.warning("Telegram bot instance not available for live update")
+            return False
+        
+        from nova.long_message_handler import send_message_with_fallback
+        
+        # Send the message (short live updates should fit in Telegram limits)
+        await send_message_with_fallback(
+            telegram_bot_instance,
+            int(chat_id),
+            formatted_message,
+            title=f"Live Update: {subagent_name}"
+        )
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to send live update: {e}")
+        return False
+
+
+async def send_streaming_start(chat_id: Optional[str], name: str) -> bool:
+    """Send a start notification."""
+    return await send_live_update(
+        message="Started working on task...",
+        chat_id=chat_id,
+        subagent_name=name,
+        message_type="start"
+    )
+
+
+async def send_streaming_progress(
+    chat_id: Optional[str], 
+    name: str, 
+    progress: str
+) -> bool:
+    """Send a progress update."""
+    return await send_live_update(
+        message=progress,
+        chat_id=chat_id,
+        subagent_name=name,
+        message_type="progress"
+    )
+
+
+async def send_streaming_complete(
+    chat_id: Optional[str], 
+    name: str, 
+    summary: Optional[str] = None
+) -> bool:
+    """Send a completion notification."""
+    msg = "Task completed successfully!"
+    if summary:
+        msg = f"Task completed! {summary}"
+    return await send_live_update(
+        message=msg,
+        chat_id=chat_id,
+        subagent_name=name,
+        message_type="complete"
+    )
+
+
+async def send_streaming_error(
+    chat_id: Optional[str], 
+    name: str, 
+    error: str
+) -> bool:
+    """Send an error notification."""
+    return await send_live_update(
+        message=f"Error: {error}",
+        chat_id=chat_id,
+        subagent_name=name,
+        message_type="error"
+    )
+
+
+class StreamingContext:
+    """
+    Context manager for sending streaming updates during a subagent task.
+    
+    Usage:
+        async with StreamingContext(chat_id, subagent_name) as stream:
+            await stream.send("Processing step 1...")
+            await stream.send("Processing step 2...")
+            # On exit, automatically sends completion
+    """
+    
+    def __init__(
+        self, 
+        chat_id: Optional[str], 
+        subagent_name: str,
+        auto_complete: bool = True
+    ):
+        self.chat_id = chat_id
+        self.subagent_name = subagent_name
+        self.auto_complete = auto_complete
+        self._entered = False
+    
+    async def __aenter__(self):
+        self._entered = True
+        await send_streaming_start(self.chat_id, self.subagent_name)
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            # An exception occurred
+            error_msg = str(exc_val) if exc_val else "Unknown error"
+            await send_streaming_error(self.chat_id, self.subagent_name, error_msg)
+        elif self.auto_complete:
+            await send_streaming_complete(self.chat_id, self.subagent_name)
+        return False  # Don't suppress exceptions
+    
+    async def send(self, message: str, msg_type: str = "update"):
+        """Send a progress message."""
+        return await send_live_update(
+            message=message,
+            chat_id=self.chat_id,
+            subagent_name=self.subagent_name,
+            message_type=msg_type
+        )

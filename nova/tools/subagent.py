@@ -41,6 +41,15 @@ from nova.tools.context_optimizer import (
     CHAR_LIMIT_EMERGENCY
 )
 
+# Import streaming utilities for real-time updates
+from nova.tools.streaming_utils import (
+    send_streaming_start,
+    send_streaming_progress,
+    send_streaming_complete,
+    send_streaming_error,
+    StreamingContext
+)
+
 load_dotenv()
 
 # Global dictionary to store running subagents
@@ -50,28 +59,51 @@ SUBAGENTS: Dict[str, Dict] = {}
 async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     """
     The actual coroutine that runs the subagent.
+    Now includes real-time streaming updates to the user.
     """
-    try:
-        SUBAGENTS[subagent_id]["status"] = "running"
-        logging.info(f"Subagent {subagent_id} started running: {instruction[:200]}...")
-
-        # Run the agent asynchronously
-        response = await agent.arun(instruction)
-
-        SUBAGENTS[subagent_id]["result"] = response.content
-        SUBAGENTS[subagent_id]["status"] = "completed"
-        logging.info(f"Subagent {subagent_id} completed.")
-
-    except Exception as e:
-        SUBAGENTS[subagent_id]["status"] = "failed"
-        SUBAGENTS[subagent_id]["result"] = str(e)
-        logging.error(f"Subagent {subagent_id} failed: {e}")
-
-    # After completion, send notification to user if chat_id is available
     subagent_data = SUBAGENTS.get(subagent_id)
+    if not subagent_data:
+        logging.error(f"Subagent {subagent_id} not found in SUBAGENTS dict")
+        return
+    
+    name = subagent_data.get("name", "Unknown")
+    chat_id = subagent_data.get("chat_id")
+    
+    # Create streaming context for live updates
+    async with StreamingContext(chat_id, name, auto_complete=False) as stream:
+        try:
+            SUBAGENTS[subagent_id]["status"] = "running"
+            await stream.send("Initializing agent and processing task...")
+            logging.info(f"Subagent {subagent_id} started running: {instruction[:200]}...")
+
+            # Run the agent asynchronously
+            await stream.send("Executing task with AI model...")
+            response = await agent.arun(instruction)
+
+            # Process result
+            await stream.send("Processing results...")
+            result = response.content
+            
+            SUBAGENTS[subagent_id]["result"] = result
+            SUBAGENTS[subagent_id]["status"] = "completed"
+            
+            # Send completion notification via streaming
+            await stream.send("Task completed successfully!")
+            logging.info(f"Subagent {subagent_id} completed.")
+
+        except Exception as e:
+            SUBAGENTS[subagent_id]["status"] = "failed"
+            SUBAGENTS[subagent_id]["result"] = str(e)
+            
+            # Send error notification via streaming
+            await stream.send(f"Task failed: {str(e)}", msg_type="error")
+            logging.error(f"Subagent {subagent_id} failed: {e}")
+
+    # After completion, send final notification to user if chat_id is available
+    # (The streaming context handles most updates, this is for the detailed result)
     if subagent_data and subagent_data.get("chat_id"):
-        chat_id = subagent_data["chat_id"]
-        name = subagent_data["name"]
+        final_chat_id = subagent_data["chat_id"]
+        final_name = subagent_data["name"]
         status = subagent_data["status"]
         result = subagent_data["result"]
         
@@ -83,7 +115,7 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             status_text = "completed successfully" if status == "completed" else "failed"
             
             # Build the completion message
-            msg = f"{status_emoji} <b>Subagent '{name}' {status_text}!</b>\n\n"
+            msg = f"{status_emoji} <b>Subagent '{final_name}' {status_text}!</b>\n\n"
             
             if status == "completed" and result:
                 msg += f"<b>Result:</b>\n{result}"
@@ -93,9 +125,9 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             # Use long message handler to automatically convert to PDF if needed
             await send_message_with_fallback(
                 telegram_bot_instance,
-                int(chat_id),
+                int(final_chat_id),
                 msg,
-                title=f"Subagent Report: {name}"
+                title=f"Subagent Report: {final_name}"
             )
 
 
@@ -308,11 +340,14 @@ async def create_subagent(
     heartbeat_msg = auto_register_with_heartbeat(subagent_id, name, chat_id=chat_id)
     logging.info(f"Heartbeat registration: {heartbeat_msg}")
 
-    # Proactive notification
+    # Proactive notification - also send streaming start
     if chat_id:
         from nova.telegram_bot import notify_user
 
         asyncio.create_task(notify_user(chat_id, f"🚀 <b>Starting Subagent:</b> {name}"))
+        
+        # Also send streaming start notification
+        asyncio.create_task(send_streaming_start(chat_id, name))
 
     return f"Subagent '{name}' created with ID: {subagent_id}\n{heartbeat_msg}"
 
@@ -365,6 +400,15 @@ def kill_subagent(subagent_id: str) -> str:
     if data["status"] in ["running", "starting"]:
         data["task_obj"].cancel()
         data["status"] = "cancelled"
+        
+        # Send cancellation notification via streaming
+        chat_id = data.get("chat_id")
+        name = data.get("name")
+        if chat_id:
+            asyncio.create_task(
+                send_streaming_error(chat_id, name, "Task was cancelled by user")
+            )
+        
         return f"Subagent {data['name']} cancelled."
     else:
         return f"Subagent {data['name']} is not running (Status: {data['status']})."
