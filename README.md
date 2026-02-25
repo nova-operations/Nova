@@ -20,6 +20,18 @@ It uses OpenRouter for its LLM capabilities and communicates via Telegram.
     - `TELEGRAM_BOT_TOKEN`: Your Telegram Bot token.
 4.  Run the agent: `python -m nova.agent` (or `python start.sh`)
 
+## Testing with Docker
+
+To test your build locally without interfering with the live Telegram bot (avoiding `Conflict: terminated by other getUpdates request`), use the smoke test:
+
+```bash
+# Build the image
+docker build -t nova .
+
+# Run the smoke test
+docker run --env-file .env nova python smoke_test.py
+```
+
 ## Deployment on Railway
 
 Nova is optimized for [Railway](https://railway.app). It can run as a persistent worker using either a managed PostgreSQL database or a Docker volume.
