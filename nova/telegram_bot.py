@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+from typing import List, Optional, Any
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 from nova.agent import get_agent
@@ -137,7 +138,6 @@ if __name__ == '__main__':
     application = ApplicationBuilder().token(telegram_token).build()
     
     # Set global bot instance for heartbeat callback
-    global telegram_bot_instance
     telegram_bot_instance = application.bot
 
     # Initialize Heartbeat Monitor with Telegram callback
