@@ -14,7 +14,12 @@ def setup_logging():
     )
 
     # Force common libraries to follow our lead
-    for logger_name in ["telegram", "httpx", "nova", "agno"]:
+    for logger_name in ["nova", "agno"]:
         logger = logging.getLogger(logger_name)
         logger.propagate = True
         logger.setLevel(logging.INFO)
+
+    # Silence noisy telegram polling logs
+    for logger_name in ["telegram", "httpx"]:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.WARNING)
