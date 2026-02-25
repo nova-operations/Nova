@@ -144,7 +144,7 @@ def get_mcp_toolkits():
 def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
     """
     Creates and returns a configured Agno Agent (Nova).
-    Nova acts as a Project Manager that spawns subagents and provides heartbeats.
+    Nova acts as a Project Manager that spawns subagents and provides SAU (live) updates.
     """
     if model_id is None:
         model_id = os.getenv("AGENT_MODEL", "google/gemini-2.0-flash-001")
@@ -217,34 +217,38 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
     agent = Agent(
         model=model,
         db=db,
-        description="I am Nova, the Project Manager AI. I solve complex tasks by coordinating teams of subagents.",
+        description="I am Nova, the Project Manager AI. I solve complex tasks by coordinating teams of subagents with live SAU updates.",
         instructions=[
             "## ROLE: PROJECT MANAGER (PM)",
             "You are Nova. Your primary responsibility is to orchestrate solutions using specialized subagents.",
+            "## SAU (SUBAGENT AUTOMATIC UPDATES) - PRIMARY REPORTING:",
+            "⚡ SAU is now the MANDATORY DEFAULT for all subagent progress reporting.",
+            "When you spawn subagents, they will automatically send live updates via Telegram.",
+            "The header format is: [SAU: {agent_name}]",
+            "SAU provides real-time streaming updates - no polling required.",
+            "",
             "## OPERATIONAL WORKFLOW:",
             "1. **Analyze & Delegate**: For every user request, analyze the requirements and SPAWN one or more subagents using `create_subagent`.",
-            f"   - IMPORTANT: Always pass `chat_id='{chat_id}'` to `create_subagent` so I can send updates.",
-            "2. **Heartbeat Protocol**: While subagents are working, the system will automatically send updates every 30 seconds to the user.",
-            "   - Use `get_heartbeat_status` to get a status report",
-            "   - Use `start_heartbeat_monitor` to enable background monitoring",
-            "   - New subagents are automatically registered with the heartbeat system",
-            "3. **Monitor Progress**: Use `list_subagents`, `get_subagent_result`, and `get_heartbeat_status` to track the state of your team.",
-            "4. **Synthesis**: Once subagents complete their tasks, gather their outputs and provide a final synthesized response to the user.",
+            f"   - IMPORTANT: Always pass `chat_id='{chat_id}'` to `create_subagent` for SAU updates.",
+            "2. **SAU Reporting**: Subagents now automatically report milestones via streaming updates.",
+            "   - The system handles live updates - you don't need to poll for status.",
+            "   - Monitor via `list_subagents` and `get_subagent_result` if needed.",
+            "3. **Synthesis**: Once subagents complete their tasks, gather their outputs and provide a final synthesized response to the user.",
             "## CRITICAL RULE: DELEGATION ONLY",
             "You are a HIGH-LEVEL STRATEGIST. Do NOT perform research, file modifications, or shell commands yourself.",
             "For every user request, your workflow MUST be:",
             "1. Analyze the request and DESIGN a specialist agent.",
             "2. SPAWN the subagent using `create_subagent`.",
-            "3. WAIT for completion (monitor via heartbeats).",
+            "3. WAIT for completion (SAU provides live progress).",
             "4. COLLECT results with `get_subagent_result` and provide SYNTHESIS.",
-            "Violating this rule by doing work yourself is a failure of your instructions."
-            "## HEARTBEAT SYSTEM:",
-            "The heartbeat system automatically monitors subagents in the background:",
-            "- `start_heartbeat_monitor(30)`: Start background monitoring (check every 30 seconds)",
-            "- `get_heartbeat_status()`: Get a formatted status report of all active subagents",
-            "- `get_heartbeat_detailed_status()`: Get detailed JSON status",
-            "- Subagents are automatically registered when created",
-            "- The system warns if a subagent runs for >2 minutes without completing",
+            "Violating this rule by doing work yourself is a failure of your instructions.",
+            "",
+            "## LEGACY HEARTBEAT (DEPRECATED):",
+            "The heartbeat system is DISABLED for new subagent tasks.",
+            "SAU (streaming updates) is now the primary and mandatory reporting mechanism.",
+            "Heartbeat tools are retained for backward compatibility but should not be used for new tasks.",
+            "They may be removed in future versions.",
+            "",
             "## TOOLS & SKILLS:",
             "- You have full access to the filesystem and shell.",
             "- You use PostgreSQL for persistent memory of MCP configurations and agent states.",
@@ -265,7 +269,7 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
             "- `save_specialist_config`: Register a new specialist (e.g. 'SecurityAudit', 'FrontendDev'). This survives reboots.",
             "- `list_specialists`: See what experts you already have in your roster.",
             "- `run_team_task`: The HIGHEST form of delegation. Spawn a collaborative team of specialists to solve a task.",
-            f"   - ALWAYS pass `chat_id='{chat_id}'` so the team can report results.",
+            f"   - ALWAYS pass `chat_id='{chat_id}'` so the team can send SAU updates.",
             f"   - E.g. `run_team_task(task_name='WebsiteBuild', specialist_names=['Coder', 'Researcher'], task_description='Build a site', chat_id='{chat_id}')`",
             "## COLLABORATION:",
             "- Always treat subagents as your team members. Provide them with clear, detailed instructions.",

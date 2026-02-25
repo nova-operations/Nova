@@ -56,7 +56,7 @@ SUBAGENTS: Dict[str, Dict] = {}
 async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     """
     The actual coroutine that runs the subagent.
-    Now includes real-time streaming updates to the user.
+    Uses SAU (Subagent Automatic Updates) for real-time progress reporting.
     """
     subagent_data = SUBAGENTS.get(subagent_id)
     if not subagent_data:
@@ -66,7 +66,7 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     name = subagent_data.get("name", "Unknown")
     chat_id = subagent_data.get("chat_id")
     
-    # Create streaming context for live updates
+    # Create streaming context for SAU live updates
     async with StreamingContext(chat_id, name, auto_complete=False) as stream:
         try:
             SUBAGENTS[subagent_id]["status"] = "running"
@@ -84,7 +84,7 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             SUBAGENTS[subagent_id]["result"] = result
             SUBAGENTS[subagent_id]["status"] = "completed"
             
-            # Send completion notification via streaming
+            # Send completion notification via SAU
             await stream.send("Task completed successfully!")
             logging.info(f"Subagent {subagent_id} completed.")
 
@@ -92,7 +92,7 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             SUBAGENTS[subagent_id]["status"] = "failed"
             SUBAGENTS[subagent_id]["result"] = str(e)
             
-            # Send error notification via streaming
+            # Send error notification via SAU
             await stream.send(f"Task failed: {str(e)}", msg_type="error")
             logging.error(f"Subagent {subagent_id} failed: {e}")
 
@@ -190,12 +190,13 @@ async def create_subagent(
 ) -> str:
     """
     Creates and starts a subagent in the background.
+    Uses SAU (Subagent Automatic Updates) as the default reporting mechanism.
 
     Args:
         name: A name for the subagent.
         instructions: Instructions for the subagent's persona/behavior.
         task: The specific task or question for the subagent to process.
-        chat_id: The Telegram Chat ID to send heartbeat updates to.
+        chat_id: The Telegram Chat ID to send SAU live updates to.
 
     Returns:
         The ID of the created subagent.
@@ -285,12 +286,27 @@ async def create_subagent(
     except ImportError:
         logging.warning("Could not import get_mcp_toolkits in subagent")
 
-    # Enhanced instructions with context management
+    # MANDATORY SAU INSTRUCTIONS - These are injected into every subagent's system prompt
+    # This ensures all subagents report milestones via SAU by default
+    sau_instructions = """## MANDATORY LIVE UPDATES (SAU) - DEFAULT BEHAVIOR:
+- YOU MUST use the streaming system to report milestones IMMEDIATELY as you progress.
+- Use the `send_streaming_start`, `send_streaming_progress`, and `send_streaming_complete` functions.
+- The header format for all updates is: [SAU: {agent_name}]
+- Report at key milestones: initialization, tool execution, results processing, completion.
+- NEVER wait for completion to send updates - report progress in real-time.
+- If errors occur, use `send_streaming_error` immediately.
+- This is NOT optional - it is the MANDATORY default for all subagent reporting.
+- Legacy heartbeat/PM polling is DISABLED for your tasks.
+"""
+
+    # Enhanced instructions with MANDATORY SAU
     enhanced_instructions = [
         f"You are a specialized subagent named '{name}'.",
         "Your goal is to execute the specific task assigned to you.",
         "You have access to shell, filesystem, and specialized MCP tools.",
         "Focus on DOING the work rather than delegating.",
+        "",
+        sau_instructions,
         "",
         "## CONTEXT MANAGEMENT (IMPORTANT):",
         "- You may receive truncated or summarized inputs due to context limits",
@@ -333,18 +349,16 @@ async def create_subagent(
         "chat_id": chat_id,
     }
 
-    # Heartbeat monitoring disabled - using streaming updates instead
-    # heartbeat_msg = auto_register_with_heartbeat(subagent_id, name, chat_id=chat_id)
-    # logging.info(f"Heartbeat registration: {heartbeat_msg}")
-    logging.info(f"Subagent '{name}' created - using streaming updates instead of heartbeat")
+    # Heartbeat monitoring DISABLED - SAU is the mandatory default
+    logging.info(f"Subagent '{name}' created - SAU live updates enabled (heartbeat disabled)")
 
-    # Proactive notification - also send streaming start
+    # Proactive notification - send SAU start
     if chat_id:
         from nova.telegram_bot import notify_user
 
         asyncio.create_task(notify_user(chat_id, f"🚀 <b>Starting Subagent:</b> {name}"))
         
-        # Also send streaming start notification
+        # Also send SAU start notification
         asyncio.create_task(send_streaming_start(chat_id, name))
 
     return f"Subagent '{name}' created with ID: {subagent_id}"
@@ -399,7 +413,7 @@ def kill_subagent(subagent_id: str) -> str:
         data["task_obj"].cancel()
         data["status"] = "cancelled"
         
-        # Send cancellation notification via streaming
+        # Send cancellation notification via SAU
         chat_id = data.get("chat_id")
         name = data.get("name")
         if chat_id:

@@ -42,11 +42,26 @@ def create_specialist_agent(
     # DB setup for persistent specialist memory
     db = get_agno_db(session_table=f"specialist_{name}_sessions")
 
+    # MANDATORY SAU INSTRUCTIONS for specialists
+    sau_instructions = """## MANDATORY LIVE UPDATES (SAU) - DEFAULT BEHAVIOR:
+- YOU MUST use the streaming system to report milestones IMMEDIATELY as you progress.
+- Use the `send_streaming_start`, `send_streaming_progress`, and `send_streaming_complete` functions.
+- The header format for all updates is: [SAU: {agent_name}]
+- Report at key milestones: initialization, tool execution, results processing, completion.
+- NEVER wait for completion to send updates - report progress in real-time.
+- If errors occur, use `send_streaming_error` immediately.
+- This is NOT optional - it is the MANDATORY default for all subagent/specialist reporting.
+- Legacy heartbeat/PM polling is DISABLED for your tasks.
+"""
+
+    # Inject SAU instructions into the specialist's existing instructions
+    enhanced_instructions = sau_instructions + "\n\n" + config.get("instructions", "")
+
     return Agent(
         name=config["name"],
         role=config["role"],
         model=model,
-        instructions=config["instructions"],
+        instructions=enhanced_instructions,
         tools=tools,
         db=db,
         markdown=True,
@@ -62,7 +77,8 @@ async def run_team_task(
 ) -> str:
     """
     Creates a dynamic team and runs a task asynchronously.
-    Uses streaming updates instead of heartbeat system.
+    Uses SAU (Subagent Automatic Updates) as the mandatory reporting mechanism.
+    Heartbeat system is DISABLED for team tasks.
     """
     try:
         # Build specialists
@@ -75,24 +91,28 @@ async def run_team_task(
         if not members:
             return "❌ Error: Could not instantiate any specialists for the team."
 
-        # Team setup
-        # The first specialist is usually the primary, but Team leader manages them
-        # We'll use a generic Team model for coordination
+        # Team setup with mandatory SAU instructions
+        team_instructions = """## MANDATORY LIVE UPDATES (SAU):
+This team MUST use SAU streaming updates for all progress reporting.
+The header format is: [SAU: {team_name}]
+- Report when team initializes
+- Report when individual specialists start working
+- Report major milestones and completion
+- DO NOT rely on heartbeat polling - SAU is the primary reporting channel.
+"""
+        
         team = Team(
             name=task_name,
             members=members,
             description=f"Dynamic Team for: {task_name}",
-            instructions="Collaborate to solve the task. Delegate sub-tasks if needed.",
+            instructions=team_instructions,
             markdown=True,
         )
 
         subagent_id = f"team_{task_name}_{asyncio.get_event_loop().time():.0f}"
 
-        # Heartbeat monitoring disabled - using streaming updates instead
-        # register_subagent_for_heartbeat(
-        #     subagent_id, f"Team: {task_name}", chat_id=chat_id
-        # )
-        logger.info(f"Team task '{task_name}' created - using streaming updates instead of heartbeat")
+        # Heartbeat monitoring DISABLED - SAU is mandatory
+        logger.info(f"Team task '{task_name}' created - SAU live updates enabled (heartbeat disabled)")
 
         # Store in global tracking
         SUBAGENTS[subagent_id] = {
@@ -102,9 +122,9 @@ async def run_team_task(
             "chat_id": chat_id,
         }
 
-        # Run in background via task with streaming updates
+        # Run in background via task with SAU updates
         async def _team_runner():
-            # Create streaming context for the team
+            # Create SAU streaming context for the team
             async with StreamingContext(chat_id, f"Team: {task_name}", auto_complete=False) as stream:
                 try:
                     await stream.send(f"Initializing {len(members)} specialists...")
@@ -133,7 +153,7 @@ async def run_team_task(
                 )
             )
             
-            # Also send streaming start notification
+            # Send SAU start notification
             asyncio.create_task(
                 send_streaming_start(chat_id, f"Team: {task_name}")
             )
