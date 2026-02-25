@@ -11,6 +11,19 @@ from nova.tools.shell import execute_shell_command
 from nova.tools.filesystem import read_file, write_file, list_files, delete_file, create_directory
 from nova.tools.subagent import create_subagent, list_subagents, get_subagent_result, kill_subagent
 from nova.tools.github_tools import push_to_github, pull_latest_changes
+from nova.tools.scheduler import (
+    add_scheduled_task,
+    list_scheduled_tasks,
+    get_scheduled_task,
+    update_scheduled_task,
+    remove_scheduled_task,
+    pause_scheduled_task,
+    resume_scheduled_task,
+    run_scheduled_task_now,
+    get_scheduler_status,
+    start_scheduler,
+    stop_scheduler
+)
 from nova.tools.mcp_registry import mcp_registry
 from nova.tools.mcp_tools import add_mcp_server, remove_mcp_server, list_registered_mcp_servers
 from nova.logger import setup_logging
@@ -66,6 +79,18 @@ def get_agent(model_id: Optional[str] = None):
             "- You have full access to the filesystem and shell.",
             "- You use PostgreSQL for persistent memory of MCP configurations and agent states.",
             "- You use Agno MCP tools to fetch the latest documentation and remain 'state-of-the-art'.",
+            "- You have access to a scheduler system for automated tasks.",
+
+            "## SCHEDULER TOOLS:",
+            "- `add_scheduled_task`: Schedule new tasks (cron format)",
+            "- `list_scheduled_tasks`: List all scheduled tasks",
+            "- `get_scheduled_task`: Get details of a specific task",
+            "- `update_scheduled_task`: Modify an existing task",
+            "- `remove_scheduled_task`: Delete a scheduled task",
+            "- `pause_scheduled_task`: Pause a task",
+            "- `resume_scheduled_task`: Resume a paused task",
+            "- `run_scheduled_task_now`: Trigger a task manually",
+            "- `get_scheduler_status`: Check scheduler health",
 
             "## COLLABORATION:",
             "- Always treat subagents as your team members. Provide them with clear, detailed instructions.",
@@ -90,7 +115,19 @@ def get_agent(model_id: Optional[str] = None):
             pull_latest_changes,
             add_mcp_server,
             remove_mcp_server,
-            list_registered_mcp_servers
+            list_registered_mcp_servers,
+            # Scheduler tools
+            add_scheduled_task,
+            list_scheduled_tasks,
+            get_scheduled_task,
+            update_scheduled_task,
+            remove_scheduled_task,
+            pause_scheduled_task,
+            resume_scheduled_task,
+            run_scheduled_task_now,
+            get_scheduler_status,
+            start_scheduler,
+            stop_scheduler
         ],
         markdown=True,
         add_history_to_context=True,
@@ -121,5 +158,10 @@ def get_agent(model_id: Optional[str] = None):
     return agent
 
 if __name__ == "__main__":
+    # Initialize scheduler on startup
+    from nova.tools.scheduler import initialize_scheduler
+    initialize_scheduler()
+    
     agent = get_agent()
     print("Nova PM Agent initialized.")
+    print("Scheduler started - running in background.")

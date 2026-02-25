@@ -30,7 +30,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id, 
-        text=f"Hello! I am Nova (User ID: {user_id}). I can run commands, manage files, and spawn subagents. How can I help you?"
+        text=f"Hello! I am Nova (User ID: {user_id}). I can run commands, manage files, spawn subagents, and manage scheduled tasks. How can I help you?"
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -85,6 +85,14 @@ if __name__ == '__main__':
         
     if not openrouter_key:
         print("Warning: OPENROUTER_API_KEY not set. Agent commands involving LLM will fail.")
+
+    # Initialize scheduler on startup
+    from nova.tools.scheduler import initialize_scheduler
+    try:
+        initialize_scheduler()
+        print("✅ Scheduler initialized successfully")
+    except Exception as e:
+        print(f"⚠️ Scheduler initialization failed: {e}")
 
     application = ApplicationBuilder().token(telegram_token).build()
     
