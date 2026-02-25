@@ -19,7 +19,7 @@ from croniter import croniter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, Enum
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, Enum, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from dotenv import load_dotenv
