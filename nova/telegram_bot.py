@@ -229,11 +229,13 @@ if __name__ == "__main__":
     # Set global bot instance for heartbeat callback
     telegram_bot_instance = application.bot
 
-    # Also set it in sys.modules so imports see it, since this is run as __main__
-    if "nova.telegram_bot" in sys.modules:
-        sys.modules["nova.telegram_bot"].telegram_bot_instance = application.bot
+    # Also set it so imports see it, since this is run as __main__
+    try:
+        import nova.telegram_bot
 
-    # Register error handler
+        nova.telegram_bot.telegram_bot_instance = application.bot
+    except Exception as e:
+        print(f"Error setting global bot instance: {e}")
     application.add_error_handler(handle_error)
 
     start_handler = CommandHandler("start", start)
