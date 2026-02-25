@@ -57,7 +57,7 @@ from nova.tools.team_manager import run_team_task
 from nova.logger import setup_logging
 
 try:
-    from agno.tools.mcp import MCPTools, MultiMCPTools, StreamableHTTPClientParams
+    from agno.tools.mcp import MCPTools, StreamableHTTPClientParams
 
     try:
         from agno.tools.mcp import StdioServerParameters
@@ -87,24 +87,24 @@ def get_mcp_toolkits():
 
     toolkits = []
 
-    # 1. Standard Agno Docs
-    try:
-        toolkits.append(
-            MCPTools(
-                transport="streamable-http",
-                url="https://docs.agno.com/mcp",
-                timeout_seconds=120,
+    # 1. Standard Agno Docs (Optional)
+    if os.getenv("ENABLE_AGNO_DOCS", "false").lower() == "true":
+        try:
+            toolkits.append(
+                MCPTools(
+                    transport="streamable-http",
+                    url="https://docs.agno.com/mcp",
+                    timeout_seconds=30,
+                )
             )
-        )
-    except Exception as e:
-        print(f"⚠️ Warning: Failed to load Agno Docs MCP: {e}")
+        except Exception as e:
+            print(f"⚠️ Warning: Failed to load Agno Docs MCP: {e}")
 
     # 2. Custom MCPs from Registry
     try:
         registered_servers = mcp_registry.list_servers()
         if registered_servers:
             print(f"📡 Found {len(registered_servers)} MCP servers in registry.")
-            server_params_list = []
             for s in registered_servers:
                 name = s.get("name", "unknown")
                 if name == "agno_docs":
@@ -118,32 +118,28 @@ def get_mcp_toolkits():
                                 args=s["args"],
                                 env=s["env"] or os.environ.copy(),
                             )
-                            server_params_list.append(params)
+                            toolkits.append(
+                                MCPTools(
+                                    server_params=params,
+                                    timeout_seconds=30,
+                                )
+                            )
                     else:
                         if StreamableHTTPClientParams:
                             params = StreamableHTTPClientParams(
                                 url=s["url"],
                                 headers=s.get("env"),
-                                timeout=timedelta(seconds=120),
+                                timeout=timedelta(seconds=30),
                             )
-                            server_params_list.append(params)
+                            toolkits.append(
+                                MCPTools(
+                                    server_params=params,
+                                    timeout_seconds=30,
+                                )
+                            )
+                    print(f"✅ Added MCP toolkit for server: {name}")
                 except Exception as e:
-                    print(f"❌ Error preparing params for MCP {name}: {e}")
-
-            if server_params_list:
-                try:
-                    toolkits.append(
-                        MultiMCPTools(
-                            server_params_list=server_params_list,
-                            allow_partial_failure=True,
-                            timeout_seconds=120,
-                        )
-                    )
-                    print(
-                        f"✅ MultiMCPToolkit added for {len(server_params_list)} servers."
-                    )
-                except Exception as e:
-                    print(f"❌ Error creating MultiMCPToolkit: {e}")
+                    print(f"❌ Error creating MCP toolkit for {name}: {e}")
     except Exception as e:
         print(f"⚠️ Warning: Registry error: {e}")
 
