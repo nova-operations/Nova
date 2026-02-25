@@ -31,6 +31,9 @@ def get_agent(model_id: Optional[str] = None):
 
     database_url = os.getenv("DATABASE_URL")
     if database_url and (database_url.startswith("postgresql://") or database_url.startswith("postgres://")):
+        # Ensure the scheme is postgresql:// for SQLAlchemy compatibility
+        if database_url.startswith("postgres://"):
+            database_url = database_url.replace("postgres://", "postgresql://", 1)
         db = PostgresDb(session_table="nova_agent_sessions", db_url=database_url)
     else:
         # Use persistent path for DB if available (e.g. Railway volume at /app/data)

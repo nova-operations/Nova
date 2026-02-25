@@ -6,3 +6,4 @@ requests
 sqlalchemy
 aiosqlite
 psycopg[binary]
+psycopg2-binary

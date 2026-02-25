@@ -5,10 +5,13 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 from nova.agent import get_agent
 
-# Enable logging
+import sys
+
+# Enable logging and route to stdout to avoid "red logs" in Railway
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    stream=sys.stdout
 )
 
 def is_authorized(user_id: int) -> bool:
