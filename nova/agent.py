@@ -201,11 +201,10 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
     try:
         if StreamableHTTPClientParams:
             agent.tools.append(MCPTools(
-                name="agno_docs",
                 server_params=StreamableHTTPClientParams(url="https://docs.agno.com/mcp", timeout=60)
             ))
         else:
-            agent.tools.append(MCPTools(name="agno_docs", url="https://docs.agno.com/mcp"))
+            agent.tools.append(MCPTools(url="https://docs.agno.com/mcp"))
     except Exception as e:
         print(f"Warning: Failed to load Agno Docs MCP: {e}")
 
@@ -221,12 +220,12 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
                             args=s['args'],
                             env=s['env'] or os.environ.copy()
                         )
-                        agent.tools.append(MCPTools(name=s['name'], server_params=server_params))
+                        agent.tools.append(MCPTools(server_params=server_params))
                     else:
                         cmd = s['command']
                         if s.get('args'):
                             cmd += " " + " ".join(s['args'])
-                        agent.tools.append(MCPTools(name=s['name'], command=cmd, env=s.get('env')))
+                        agent.tools.append(MCPTools(command=cmd, env=s.get('env')))
                 elif s['transport'] == "streamable-http":
                     if StreamableHTTPClientParams:
                         server_params = StreamableHTTPClientParams(
@@ -234,9 +233,9 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
                             headers=s.get('env'),
                             timeout=60
                         )
-                        agent.tools.append(MCPTools(name=s['name'], server_params=server_params))
+                        agent.tools.append(MCPTools(server_params=server_params))
                     else:
-                        agent.tools.append(MCPTools(name=s['name'], url=s['url']))
+                        agent.tools.append(MCPTools(url=s['url']))
             except Exception as e:
                 print(f"Warning: Failed to load MCP server {s.get('name')}: {e}")
     except Exception as e:

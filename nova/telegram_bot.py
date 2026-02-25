@@ -4,6 +4,7 @@ import asyncio
 from typing import List, Optional, Any
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
+from html import escape
 from nova.agent import get_agent
 from nova.logger import setup_logging
 from nova.tools.heartbeat import get_heartbeat_monitor
@@ -67,7 +68,6 @@ async def heartbeat_callback(report: str, records: List[object]):
         for r in finished_records:
             status_emoji = "✅" if r.status == "completed" else "❌"
             # Use HTML and escape result for resilience
-            from html import escape
             clean_result = escape(str(r.result))
             msg = f"{status_emoji} <b>{escape(r.name)} has finished!</b>\n\n<b>Result:</b>\n{clean_result}"
             try:
