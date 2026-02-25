@@ -40,6 +40,7 @@ from nova.tools.context_optimizer import (
 
 # Import streaming utilities for real-time updates
 from nova.tools.streaming_utils import (
+    _get_telegram_bot,
     send_streaming_start,
     send_streaming_progress,
     send_streaming_complete,
@@ -53,25 +54,25 @@ load_dotenv()
 SUBAGENTS: Dict[str, Dict] = {}
 
 # Global bot instance - imported lazily to avoid circular imports
-_telegram_bot_instance = None
+# Removed: caching bot instance - use streaming_utils instead
 
 
 def get_telegram_bot():
     """Get the Telegram bot instance, trying multiple sources."""
-    global _telegram_bot_instance
+    # Use the function from streaming_utils
 
     # First, try to get from telegram_bot module
     try:
         from nova.telegram_bot import telegram_bot_instance
 
         if telegram_bot_instance:
-            _telegram_bot_instance = telegram_bot_instance
+            # Not needed anymore
             return telegram_bot_instance
     except ImportError:
         pass
 
     # Return cached instance if available
-    return _telegram_bot_instance
+    return _get_telegram_bot()
 
 
 async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):

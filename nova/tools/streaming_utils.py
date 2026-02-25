@@ -5,6 +5,7 @@ Provides real-time progress notifications to Telegram users.
 import asyncio
 import logging
 from typing import Optional, Callable, Awaitable
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -14,38 +15,86 @@ STREAM_HEADER = "[SAU: {name}]"
 # Target chat_id for live updates (default: 98746403)
 DEFAULT_CHAT_ID = "98746403"
 
-# Cached bot instance to avoid repeated imports
-_cached_bot_instance = None
+# Cache for bot instance (non-None only)
+_cached_bot = None
 
 
 def _get_telegram_bot():
     """
-    Get the Telegram bot instance with better fallback handling.
-    Tries multiple sources to find a valid bot instance.
+    Get the Telegram bot instance with comprehensive fallback handling.
+    
+    Tries multiple sources in order:
+    1. Import from nova.telegram_bot module (works when bot is running as main)
+    2. Search sys.modules for any loaded telegram_bot with an instance
+    3. Create a new bot instance from TELEGRAM_BOT_TOKEN (last resort)
     """
-    global _cached_bot_instance
-
-    # Return cached instance if available
-    if _cached_bot_instance:
-        return _cached_bot_instance
-
-    # Try to get from telegram_bot module using a function to avoid issues
-    # with module-level global not being set yet
+    global _cached_bot
+    
+    # Return cached bot if we already have one
+    if _cached_bot is not None:
+        return _cached_bot
+    
+    # First, try to get from telegram_bot module
     try:
-        # Import the module, not the instance directly
         import nova.telegram_bot as tb_module
 
-        # Check if the module has the instance
+        # Check if the module has the instance and it's not None
         if hasattr(tb_module, "telegram_bot_instance"):
             bot = tb_module.telegram_bot_instance
-            if bot:
-                _cached_bot_instance = bot
+            if bot is not None:
+                logger.debug("Found telegram_bot_instance in nova.telegram_bot module")
+                _cached_bot = bot
                 return bot
     except ImportError as e:
         logger.debug(f"Could not import telegram_bot module: {e}")
 
-    # If still not available, return None (will log warning)
+    # Try alternate import path for when running as subagent
+    try:
+        import sys
+        # Check if telegram_bot is in sys.modules
+        for mod_name, mod in sys.modules.items():
+            if 'telegram_bot' in mod_name and mod is not None:
+                if hasattr(mod, 'telegram_bot_instance'):
+                    bot = mod.telegram_bot_instance
+                    if bot is not None:
+                        logger.debug(f"Found bot in sys.modules: {mod_name}")
+                        _cached_bot = bot
+                        return bot
+    except Exception as e:
+        logger.debug(f"Error searching sys.modules: {e}")
+
+    # Last resort: try creating a bot from the token
+    try:
+        from telegram import Bot
+        from telegram.error import TelegramError
+        
+        token = os.getenv("TELEGRAM_BOT_TOKEN")
+        if token:
+            # Create a new bot instance (expensive but works as fallback)
+            logger.debug("Creating new Telegram bot instance from token (fallback)")
+            bot = Bot(token=token)
+            # Store in cache - initialization will be done when sending message
+            _cached_bot = bot
+            return bot
+    except ImportError:
+        logger.debug("telegram package not available")
+    except TelegramError as e:
+        logger.debug(f"Failed to create bot: {e}")
+
+    # If still not available, return None
+    logger.warning("Telegram bot instance not found - SAU updates will be disabled")
     return None
+
+
+async def _ensure_bot_initialized(bot):
+    """Ensure the bot is initialized before use."""
+    if bot and hasattr(bot, 'initialize') and not hasattr(bot, '_initialized'):
+        try:
+            await bot.initialize()
+            bot._initialized = True
+            logger.debug("Bot initialized successfully")
+        except Exception as e:
+            logger.warning(f"Bot initialization failed: {e}")
 
 
 async def send_live_update(
@@ -93,19 +142,10 @@ async def send_live_update(
             logger.warning(
                 f"Telegram bot instance not available for live update to {subagent_name}"
             )
-            # Debug: try to show what's happening
-            try:
-                import nova.telegram_bot as tb
-
-                logger.debug(
-                    f"telegram_bot module attributes: {[a for a in dir(tb) if not a.startswith('_')]}"
-                )
-                logger.debug(
-                    f"telegram_bot_instance value: {getattr(tb, 'telegram_bot_instance', 'NOT FOUND')}"
-                )
-            except Exception as e2:
-                logger.debug(f"Could not inspect telegram_bot: {e2}")
             return False
+
+        # Ensure bot is initialized before sending
+        await _ensure_bot_initialized(telegram_bot_instance)
 
         from nova.long_message_handler import send_message_with_fallback
 
