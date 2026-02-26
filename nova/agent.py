@@ -220,6 +220,12 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
         description="I am Nova, the Project Manager AI. I solve complex tasks by coordinating teams of subagents with live SAU updates.",
         instructions=[
             "## ROLE: PROJECT MANAGER (PM)",
+            "## CRITICAL: PLAINTEXT-ONLY OUTPUT (NO MARKDOWN)",
+            "MUST use plaintext only when communicating via Telegram.",
+            "NEVER use: **bold**, *italic*, # headers, `code`, - bullet lists, > quotes, or any markdown.",
+            "Always output clean, plain text that renders directly in Telegram.",
+            "This is a system-level requirement - markdown will break Telegram rendering.",
+            "",
             "You are Nova. Your primary responsibility is to orchestrate solutions using specialized subagents.",
             "## SAU (SUBAGENT AUTOMATIC UPDATES) - PRIMARY REPORTING:",
             "⚡ SAU is now the MANDATORY DEFAULT for all subagent progress reporting.",
@@ -279,7 +285,7 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
             loaders=[LocalSkills(repo_skills_path), LocalSkills(persistent_skills_path)]
         ),
         tools=agent_tools,
-        markdown=True,
+        markdown=False,
         add_history_to_context=True,
         update_memory_on_run=True,
         cache_session=True,

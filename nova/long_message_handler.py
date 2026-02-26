@@ -3,9 +3,13 @@ Long Message Protocol Handler for Telegram
 
 This module handles messages that exceed Telegram's 4096 character limit
 by converting them to PDF documents when necessary.
+
+IMPORTANT: This module now operates in PLAINTEXT-ONLY mode.
+All Markdown is automatically stripped before sending to Telegram.
 """
 
 import os
+import re
 import logging
 import tempfile
 from typing import Optional
@@ -17,6 +21,93 @@ logger = logging.getLogger(__name__)
 
 # Telegram message length limit (with some buffer for safety)
 TELEGRAM_MAX_LENGTH = 4000
+
+# Configuration: Force plaintext mode for Telegram
+# When True, all markdown characters are stripped from messages
+FORCE_PLAINTEXT = os.getenv("FORCE_PLAINTEXT", "true").lower() == "true"
+
+
+def strip_markdown(text: str) -> str:
+    """
+    Strip all Markdown formatting from text for Telegram compatibility.
+    
+    Removes:
+    - Headers (# ## ###)
+    - Bold (**text** or __text__)
+    - Italic (*text* or _text_)
+    - Code blocks (```code```)
+    - Inline code (`code`)
+    - Links [text](url)
+    - Bullet lists (- * +)
+    - Numbered lists (1. 2. 3.)
+    - Blockquotes (> text)
+    - Horizontal rules (---)
+    
+    Args:
+        text: The text with potential markdown formatting
+        
+    Returns:
+        Clean plaintext with no markdown characters
+    """
+    if not text:
+        return text
+    
+    result = text
+    
+    # Remove code blocks (```...```) - must be first to handle nested content
+    result = re.sub(r'```[\s\S]*?```', '', result)
+    
+    # Remove inline code (`...`)
+    result = re.sub(r'`[^`]+`', '', result)
+    result = re.sub(r'`([^`]+)`', r'\1', result)  # Keep content
+    
+    # Remove headers (# ## ###)
+    result = re.sub(r'^#{1,6}\s+', '', result, flags=re.MULTILINE)
+    
+    # Remove bold (**text** or __text__)
+    result = re.sub(r'\*\*([^*]+)\*\*', r'\1', result)
+    result = re.sub(r'__([^_]+)__', r'\1', result)
+    
+    # Remove italic (*text* or _text_) - must be after bold
+    result = re.sub(r'(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)', r'\1', result)
+    result = re.sub(r'(?<!_)_(?!_)([^_]+)(?<!_)_(?!_)', r'\1', result)
+    
+    # Remove links [text](url) - keep text only
+    result = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', result)
+    
+    # Remove bullet list markers (- * +) at start of lines
+    result = re.sub(r'^[\-\*\+]\s+', '', result, flags=re.MULTILINE)
+    
+    # Remove numbered lists (1. 2. 3.) at start of lines
+    result = re.sub(r'^\d+\.\s+', '', result, flags=re.MULTILINE)
+    
+    # Remove blockquotes (> text)
+    result = re.sub(r'^>\s+', '', result, flags=re.MULTILINE)
+    
+    # Remove horizontal rules (---, ***, ___)
+    result = re.sub(r'^[\-\*_]{3,}\s*$', '', result, flags=re.MULTILINE)
+    
+    # Clean up excessive whitespace
+    result = re.sub(r'\n{3,}', '\n\n', result)
+    result = result.strip()
+    
+    return result
+
+
+def sanitize_for_telegram(text: str, force_plaintext: bool = True) -> str:
+    """
+    Sanitize text for Telegram by removing markdown and/or setting parse_mode.
+    
+    Args:
+        text: The text to sanitize
+        force_plaintext: If True, strip all markdown characters
+        
+    Returns:
+        Sanitized text safe for Telegram
+    """
+    if force_plaintext or FORCE_PLAINTEXT:
+        return strip_markdown(text)
+    return text
 
 
 def markdown_to_pdf_content(markdown_text: str) -> str:
@@ -163,6 +254,9 @@ def process_long_message(
         - pdf_path: Path to PDF file if created, None otherwise
         - status: 'sent_as_text', 'sent_as_pdf', or 'error'
     """
+    # CRITICAL: Always sanitize markdown before processing
+    message = sanitize_for_telegram(message, force_plaintext=True)
+    
     if not is_message_too_long(message):
         # Message fits within limits
         return message, None, 'sent_as_text'
@@ -177,12 +271,12 @@ def process_long_message(
         truncated = message[:TELEGRAM_MAX_LENGTH - 100] + "\n\n[Message truncated - PDF generation failed]"
         return truncated, None, 'error'
     
-    # Create a summary message
+    # Create a summary message (plaintext only)
     summary = (
-        f"📄 <b>Report Generated</b>\n\n"
+        f"Report Generated\n\n"
         f"The report is too long for Telegram ({len(message)} chars > {TELEGRAM_MAX_LENGTH} limit).\n"
         f"I've converted it to a PDF document which is attached to this message.\n\n"
-        f"<i>Note: If the PDF doesn't appear, you can request it again.</i>"
+        f"Note: If the PDF doesn't appear, you can request it again."
     )
     
     return summary, pdf_path, 'sent_as_pdf'
@@ -193,33 +287,43 @@ async def send_message_with_fallback(
     chat_id: int,
     message: str,
     title: str = "Nova Report",
-    parse_mode: str = "HTML"
+    parse_mode: str = None  # Changed: default to None for plaintext
 ) -> tuple[bool, str]:
     """
     Send a message to Telegram, automatically converting to PDF if too long.
+    
+    IMPORTANT: This function now operates in PLAINTEXT-ONLY mode.
+    All Markdown is automatically stripped from the message.
     
     Args:
         bot: The telegram bot instance
         chat_id: The target chat ID
         message: The message content
         title: Title for the PDF if conversion is needed
-        parse_mode: Parse mode for Telegram (HTML or Markdown)
+        parse_mode: Parse mode (now defaults to None for plaintext)
         
     Returns:
         Tuple of (success: bool, status: str)
     """
+    # CRITICAL FIX: Always strip markdown before sending
+    # Force plaintext mode regardless of parse_mode setting
+    message = sanitize_for_telegram(message, force_plaintext=True)
+    
+    # Force parse_mode to None for plaintext (overrides any HTML)
+    parse_mode = None
+    
     if is_message_too_long(message):
         summary, pdf_path, status = process_long_message(message, title)
         
         if pdf_path and os.path.exists(pdf_path):
             try:
-                # Send the PDF
+                # Send the PDF (caption will also be sanitized)
                 with open(pdf_path, 'rb') as pdf_file:
                     await bot.send_document(
                         chat_id=chat_id,
                         document=pdf_file,
                         caption=summary,
-                        parse_mode=parse_mode
+                        parse_mode=parse_mode  # None = plaintext
                     )
                 
                 # Clean up temp PDF file
@@ -236,12 +340,12 @@ async def send_message_with_fallback(
                 # Fall back to truncated message
                 status = 'error'
     
-    # Default: send as regular text message
+    # Default: send as regular text message (plaintext only)
     try:
         await bot.send_message(
             chat_id=chat_id,
             text=message,
-            parse_mode=parse_mode
+            parse_mode=parse_mode  # None = plaintext
         )
         return True, 'sent_as_text'
     except Exception as e:

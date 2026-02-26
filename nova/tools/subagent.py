@@ -341,6 +341,9 @@ async def create_subagent(
         "Focus on DOING the work rather than delegating.",
         "",
         sau_instructions,
+        "# CRITICAL: NO MARKDOWN - Telegram renders all markdown as plain text.",
+        "# NEVER use: **bold**, *italic*, # headers, `code`, - or * bullet lists.",
+        "# Always output clean plaintext that displays correctly in Telegram.",
         "",
         "## CONTEXT MANAGEMENT (IMPORTANT):",
         "- You may receive truncated or summarized inputs due to context limits",
@@ -361,7 +364,7 @@ async def create_subagent(
         description=f"Subagent {name} - A specialized worker focused on execution.",
         instructions=enhanced_instructions,
         tools=tools_list,
-        markdown=True,
+        markdown=False,
         add_history_to_context=True,
         num_history_messages=10,  # Only keep last 10 messages for context
         # NOTE: Removed num_history_runs to fix Agno warning
