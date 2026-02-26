@@ -11,3 +11,4 @@ mcp
 apscheduler
 croniter
 fpdf
+edge-tts

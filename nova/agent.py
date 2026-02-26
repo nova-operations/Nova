@@ -54,6 +54,7 @@ from nova.tools.mcp_tools import (
 )
 from nova.tools.specialist_registry import save_specialist_config, list_specialists
 from nova.tools.team_manager import run_team_task
+from nova.tools.audio_tool_wrapper import send_audio_message
 from nova.logger import setup_logging
 
 try:
@@ -209,6 +210,7 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
         save_specialist_config,
         list_specialists,
         run_team_task,
+        send_audio_message,
     ]
 
     # Append the cached MCP toolkits
@@ -277,6 +279,12 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
             "- `run_team_task`: The HIGHEST form of delegation. Spawn a collaborative team of specialists to solve a task.",
             f"   - ALWAYS pass `chat_id='{chat_id}'` so the team can send SAU updates.",
             f"   - E.g. `run_team_task(task_name='WebsiteBuild', specialist_names=['Coder', 'Researcher'], task_description='Build a site', chat_id='{chat_id}')`",
+            "## AUDIO MESSAGES:",
+            "- `send_audio_message`: Send voice/audio messages to Telegram users",
+            "  - Required: text (string to speak), chat_id (target user)",
+            "  - Optional: voice (nova, alloy, echo, fable, onyx, shimmer), caption",
+            "  - Uses edge-tts (free Microsoft TTS) - no API key needed",
+            "  - Captions are plaintext only - NO MARKDOWN",
             "## COLLABORATION:",
             "- Always treat subagents as your team members. Provide them with clear, detailed instructions.",
             "- Use the Specialist Registry for complex, recurring roles. Use `create_subagent` for simple, one-off tasks.",
