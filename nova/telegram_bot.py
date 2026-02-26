@@ -10,13 +10,13 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-from html import escape
 from nova.agent import get_agent
 from nova.logger import setup_logging
 from nova.tools.heartbeat import get_heartbeat_monitor
 from nova.tools.subagent import SUBAGENTS
 from nova.long_message_handler import (
     send_message_with_fallback,
+    strip_all_formatting,
     TELEGRAM_MAX_LENGTH,
     is_message_too_long,
     create_pdf_from_text,
@@ -86,10 +86,11 @@ async def heartbeat_callback(report: str, records: List[object]):
         ]
 
         for r in finished_records:
-            status_emoji = "✅" if r.status == "completed" else "❌"
-            # Use HTML and escape result for resilience
-            clean_result = escape(str(r.result))
-            msg = f"{status_emoji} <b>{escape(r.name)} has finished!</b>\n\n<b>Result:</b>\n{clean_result}"
+            # Plaintext-only format (no HTML)
+            status_text = "DONE" if r.status == "completed" else "FAILED"
+            # Strip any formatting from result
+            clean_result = strip_all_formatting(str(r.result))
+            msg = f"{status_text} Subagent '{r.name}' finished!\n\nResult:\n{clean_result}"
 
             # Use long message handler to automatically convert to PDF if needed
             success, status = await send_message_with_fallback(
@@ -100,11 +101,12 @@ async def heartbeat_callback(report: str, records: List[object]):
                 logging.error(f"Failed to send completion message to {chat_id}")
 
         if active_records:
-            header = f"📊 <b>Nova Team Heartbeat Update</b>"
+            # Plaintext-only format
+            header = "Nova Team Status"
             lines = [header, ""]
             for r in active_records:
-                status_emoji = "🔄" if r.status == "running" else "⏳"
-                lines.append(f"{status_emoji} <b>{escape(r.name)}</b>: {r.status}")
+                status_indicator = "RUNNING" if r.status == "running" else "STARTING"
+                lines.append(f"{status_indicator}: {r.name}")
 
             msg = "\n".join(lines)
 
@@ -120,9 +122,12 @@ async def notify_user(chat_id: str, message: str):
     if not telegram_bot_instance:
         return
 
+    # Strip all formatting from the message
+    clean_message = strip_all_formatting(message)
+
     try:
         await send_message_with_fallback(
-            telegram_bot_instance, int(chat_id), message, title="Nova Notification"
+            telegram_bot_instance, int(chat_id), clean_message, title="Nova Notification"
         )
     except Exception as e:
         logging.error(f"Failed proactive notification to {chat_id}: {e}")
@@ -179,7 +184,7 @@ async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE):
         context.error
     ):
         logging.warning(
-            "⚠️ Conflict detected: Another instance of this bot is already running. "
+            "Conflict detected: Another instance of this bot is already running. "
             "If you are testing locally, please stop the container."
         )
     else:
@@ -193,9 +198,9 @@ async def post_init(application):
 
     try:
         initialize_scheduler()
-        print("✅ Scheduler initialized successfully")
+        print("Scheduler initialized successfully")
     except Exception as e:
-        print(f"⚠️ Scheduler initialization failed: {e}")
+        print(f"Scheduler initialization failed: {e}")
 
     # Initialize Heartbeat Monitor with Telegram callback
     monitor = get_heartbeat_monitor()
@@ -206,7 +211,7 @@ async def post_init(application):
 
     monitor.register_callback(hb_wrapper)
     monitor.start()
-    print("💓 Heartbeat Monitor active with Telegram reporting")
+    print("Heartbeat Monitor active with Telegram reporting")
 
 
 if __name__ == "__main__":

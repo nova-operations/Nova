@@ -4,8 +4,10 @@ Long Message Protocol Handler for Telegram
 This module handles messages that exceed Telegram's 4096 character limit
 by converting them to PDF documents when necessary.
 
-IMPORTANT: This module now operates in PLAINTEXT-ONLY mode.
-All Markdown is automatically stripped before sending to Telegram.
+IMPORTANT: This module operates in PLAINTEXT-ONLY mode.
+- All Markdown is automatically stripped before sending
+- parse_mode is ALWAYS None (no HTML formatting)
+- HTML tags are aggressively removed
 """
 
 import os
@@ -27,12 +29,13 @@ TELEGRAM_MAX_LENGTH = 4000
 FORCE_PLAINTEXT = os.getenv("FORCE_PLAINTEXT", "true").lower() == "true"
 
 
-def strip_markdown(text: str) -> str:
+def strip_all_formatting(text: str) -> str:
     """
-    Strip all Markdown formatting from text for Telegram compatibility.
+    Strip ALL formatting (HTML and Markdown) from text for Telegram compatibility.
     
     Removes:
-    - Headers (# ## ###)
+    - HTML tags (<b>, <i>, <code>, <pre>, <a>, etc.)
+    - Markdown headers (# ## ###)
     - Bold (**text** or __text__)
     - Italic (*text* or _text_)
     - Code blocks (```code```)
@@ -41,25 +44,26 @@ def strip_markdown(text: str) -> str:
     - Bullet lists (- * +)
     - Numbered lists (1. 2. 3.)
     - Blockquotes (> text)
-    - Horizontal rules (---)
     
     Args:
-        text: The text with potential markdown formatting
+        text: The text with potential formatting
         
     Returns:
-        Clean plaintext with no markdown characters
+        Clean plaintext with no formatting characters
     """
     if not text:
         return text
     
     result = text
     
-    # Remove code blocks (```...```) - must be first to handle nested content
+    # Remove HTML tags (<...>) - aggressive, handles <b>, <i>, <code>, etc.
+    result = re.sub(r'<[^>]+>', '', result)
+    
+    # Remove code blocks (```...```)
     result = re.sub(r'```[\s\S]*?```', '', result)
     
     # Remove inline code (`...`)
-    result = re.sub(r'`[^`]+`', '', result)
-    result = re.sub(r'`([^`]+)`', r'\1', result)  # Keep content
+    result = re.sub(r'`([^`]+)`', r'\1', result)
     
     # Remove headers (# ## ###)
     result = re.sub(r'^#{1,6}\s+', '', result, flags=re.MULTILINE)
@@ -68,23 +72,23 @@ def strip_markdown(text: str) -> str:
     result = re.sub(r'\*\*([^*]+)\*\*', r'\1', result)
     result = re.sub(r'__([^_]+)__', r'\1', result)
     
-    # Remove italic (*text* or _text_) - must be after bold
+    # Remove italic (*text* or _text_)
     result = re.sub(r'(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)', r'\1', result)
     result = re.sub(r'(?<!_)_(?!_)([^_]+)(?<!_)_(?!_)', r'\1', result)
     
     # Remove links [text](url) - keep text only
     result = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', result)
     
-    # Remove bullet list markers (- * +) at start of lines
+    # Remove bullet list markers at start of lines
     result = re.sub(r'^[\-\*\+]\s+', '', result, flags=re.MULTILINE)
     
-    # Remove numbered lists (1. 2. 3.) at start of lines
+    # Remove numbered lists at start of lines
     result = re.sub(r'^\d+\.\s+', '', result, flags=re.MULTILINE)
     
-    # Remove blockquotes (> text)
+    # Remove blockquotes
     result = re.sub(r'^>\s+', '', result, flags=re.MULTILINE)
     
-    # Remove horizontal rules (---, ***, ___)
+    # Remove horizontal rules
     result = re.sub(r'^[\-\*_]{3,}\s*$', '', result, flags=re.MULTILINE)
     
     # Clean up excessive whitespace
@@ -94,19 +98,28 @@ def strip_markdown(text: str) -> str:
     return result
 
 
+def strip_markdown(text: str) -> str:
+    """
+    Strip all Markdown formatting from text for Telegram compatibility.
+    
+    This is an alias for strip_all_formatting for backward compatibility.
+    """
+    return strip_all_formatting(text)
+
+
 def sanitize_for_telegram(text: str, force_plaintext: bool = True) -> str:
     """
-    Sanitize text for Telegram by removing markdown and/or setting parse_mode.
+    Sanitize text for Telegram by removing ALL formatting (HTML and Markdown).
     
     Args:
         text: The text to sanitize
-        force_plaintext: If True, strip all markdown characters
+        force_plaintext: If True, strip all formatting characters (default: True)
         
     Returns:
         Sanitized text safe for Telegram
     """
     if force_plaintext or FORCE_PLAINTEXT:
-        return strip_markdown(text)
+        return strip_all_formatting(text)
     return text
 
 
@@ -254,8 +267,8 @@ def process_long_message(
         - pdf_path: Path to PDF file if created, None otherwise
         - status: 'sent_as_text', 'sent_as_pdf', or 'error'
     """
-    # CRITICAL: Always sanitize markdown before processing
-    message = sanitize_for_telegram(message, force_plaintext=True)
+    # CRITICAL: Always sanitize ALL formatting before processing
+    message = strip_all_formatting(message)
     
     if not is_message_too_long(message):
         # Message fits within limits
@@ -287,29 +300,30 @@ async def send_message_with_fallback(
     chat_id: int,
     message: str,
     title: str = "Nova Report",
-    parse_mode: str = None  # Changed: default to None for plaintext
+    parse_mode: Optional[str] = None  # Default to None - plaintext only
 ) -> tuple[bool, str]:
     """
     Send a message to Telegram, automatically converting to PDF if too long.
     
-    IMPORTANT: This function now operates in PLAINTEXT-ONLY mode.
-    All Markdown is automatically stripped from the message.
+    IMPORTANT: This function ALWAYS operates in PLAINTEXT-ONLY mode.
+    - All HTML and Markdown are stripped before sending
+    - parse_mode is ALWAYS None
     
     Args:
         bot: The telegram bot instance
         chat_id: The target chat ID
         message: The message content
         title: Title for the PDF if conversion is needed
-        parse_mode: Parse mode (now defaults to None for plaintext)
+        parse_mode: Ignored - always uses None for plaintext
         
     Returns:
         Tuple of (success: bool, status: str)
     """
-    # CRITICAL FIX: Always strip markdown before sending
-    # Force plaintext mode regardless of parse_mode setting
-    message = sanitize_for_telegram(message, force_plaintext=True)
+    # CRITICAL FIX: Always strip ALL formatting before sending
+    # This removes HTML tags (<b>, <i>, etc.) AND Markdown
+    message = strip_all_formatting(message)
     
-    # Force parse_mode to None for plaintext (overrides any HTML)
+    # Force parse_mode to None for plaintext (HTML is NEVER used)
     parse_mode = None
     
     if is_message_too_long(message):

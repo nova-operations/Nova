@@ -46,6 +46,7 @@ from nova.tools.streaming_utils import (
     send_streaming_complete,
     send_streaming_error,
     StreamingContext,
+    strip_all_formatting,
 )
 
 load_dotenv()
@@ -53,25 +54,10 @@ load_dotenv()
 # Global dictionary to store running subagents
 SUBAGENTS: Dict[str, Dict] = {}
 
-# Global bot instance - imported lazily to avoid circular imports
-# Removed: caching bot instance - use streaming_utils instead
-
 
 def get_telegram_bot():
     """Get the Telegram bot instance, trying multiple sources."""
     # Use the function from streaming_utils
-
-    # First, try to get from telegram_bot module
-    try:
-        from nova.telegram_bot import telegram_bot_instance
-
-        if telegram_bot_instance:
-            # Not needed anymore
-            return telegram_bot_instance
-    except ImportError:
-        pass
-
-    # Return cached instance if available
     return _get_telegram_bot()
 
 
@@ -79,6 +65,8 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     """
     The actual coroutine that runs the subagent.
     Uses SAU (Subagent Automatic Updates) for real-time progress reporting.
+    
+    IMPORTANT: Now operates in BATCHED mode - only sends START and COMPLETE messages.
     """
     subagent_data = SUBAGENTS.get(subagent_id)
     if not subagent_data:
@@ -88,15 +76,20 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     name = subagent_data.get("name", "Unknown")
     chat_id = subagent_data.get("chat_id")
 
-    # Create streaming context for SAU live updates
+    # Create streaming context for SAU updates (batched mode)
+    # This will send START on entry and COMPLETE on exit automatically
     async with StreamingContext(chat_id, name, auto_complete=False) as stream:
         try:
             SUBAGENTS[subagent_id]["status"] = "running"
-            await stream.send("Initializing agent and processing task...")
+            
+            # Log - but don't send individual messages (batched)
             logging.info(
                 f"Subagent {subagent_id} started running: {instruction[:200]}..."
             )
 
+            # Send progress through the context (will be batched, not sent individually)
+            await stream.send("Initializing agent and processing task...")
+            
             # Run the agent asynchronously
             await stream.send("Executing task with AI model...")
             response = await agent.arun(instruction)
@@ -108,9 +101,10 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             SUBAGENTS[subagent_id]["result"] = result
             SUBAGENTS[subagent_id]["status"] = "completed"
 
-            # Send completion notification via SAU
-            await stream.send("Task completed successfully!")
             logging.info(f"Subagent {subagent_id} completed.")
+            
+            # Send completion notification - the StreamingContext will handle this
+            # on __aexit__ with the summary from batched progress messages
 
         except Exception as e:
             SUBAGENTS[subagent_id]["status"] = "failed"
@@ -121,7 +115,7 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             logging.error(f"Subagent {subagent_id} failed: {e}")
 
     # After completion, send final notification to user if chat_id is available
-    # (The streaming context handles most updates, this is for the detailed result)
+    # The StreamingContext handles the main completion message
     if subagent_data and subagent_data.get("chat_id"):
         final_chat_id = subagent_data["chat_id"]
         final_name = subagent_data["name"]
@@ -132,18 +126,17 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
         telegram_bot = get_telegram_bot()
 
         if telegram_bot:
-            status_emoji = "✅" if status == "completed" else "❌"
-            status_text = (
-                "completed successfully" if status == "completed" else "failed"
-            )
-
-            # Build the completion message
-            msg = f"{status_emoji} <b>Subagent '{final_name}' {status_text}!</b>\n\n"
-
+            status_emoji = "DONE" if status == "completed" else "FAILED"
+            
+            # Build the completion message - plaintext only
+            # Note: StreamingContext already sent completion, this is optional detail
             if status == "completed" and result:
-                msg += f"<b>Result:</b>\n{result}"
+                # Strip all formatting from result
+                clean_result = strip_all_formatting(str(result))
+                msg = f"{status_emoji} Subagent '{final_name}' completed!\n\nResult:\n{clean_result}"
             else:
-                msg += f"<b>Error:</b> {result}"
+                clean_error = strip_all_formatting(str(result))
+                msg = f"{status_emoji} Subagent '{final_name}' failed!\n\nError: {clean_error}"
 
             # Use long message handler to automatically convert to PDF if needed
             await send_message_with_fallback(
@@ -191,7 +184,7 @@ def _preprocess_task_with_context_optimization(task: str) -> str:
             )
 
         # Add context management prefix
-        task = f"""⚠️ IMPORTANT: The following task contains large input data that has been truncated for context management.
+        task = f"""IMPORTANT: The following task contains large input data that has been truncated for context management.
 
 CONTEXT LIMITATIONS:
 - The input has been reduced from {len(task)} to approximately {CHAR_LIMIT_HIGH} characters
@@ -394,14 +387,10 @@ async def create_subagent(
         f"Subagent '{name}' created - SAU live updates enabled (heartbeat disabled)"
     )
 
-    # Proactive notification - send SAU start
-    if chat_id:
-        from nova.telegram_bot import notify_user
-
-        asyncio.create_task(notify_user(chat_id, f"🚀 <b>Starting Subagent:</b> {name}"))
-
-        # Also send SAU start notification
-        asyncio.create_task(send_streaming_start(chat_id, name))
+    # REMOVED: Duplicate notification sending
+    # The StreamingContext in run_subagent_task will automatically send
+    # START and COMPLETE messages, so we don't need additional notifications here.
+    # This was causing double/triple messages before.
 
     return f"Subagent '{name}' created with ID: {subagent_id}"
 

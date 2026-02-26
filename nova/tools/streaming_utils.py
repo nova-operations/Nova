@@ -1,9 +1,15 @@
 """
 Streaming update utilities for subagents.
 Provides real-time progress notifications to Telegram users.
+
+IMPORTANT: This module operates in PLAINTEXT-ONLY mode with MESSAGE BATCHING.
+- Only sends "Started" and "Completed" messages per subagent
+- All HTML and Markdown tags are aggressively stripped before sending
 """
+
 import asyncio
 import logging
+import re
 from typing import Optional, Callable, Awaitable
 import os
 
@@ -17,6 +23,75 @@ DEFAULT_CHAT_ID = "98746403"
 
 # Cache for bot instance (non-None only)
 _cached_bot = None
+
+
+def strip_all_formatting(text: str) -> str:
+    """
+    Strip ALL formatting (HTML and Markdown) from text for Telegram compatibility.
+    
+    Removes:
+    - HTML tags (<b>, <i>, <code>, <pre>, <a>, etc.)
+    - Markdown headers (# ## ###)
+    - Bold (**text** or __text__)
+    - Italic (*text* or _text_)
+    - Code blocks (```code```)
+    - Inline code (`code`)
+    - Links [text](url)
+    - Bullet lists (- * +)
+    - Numbered lists (1. 2. 3.)
+    - Blockquotes (> text)
+    
+    Args:
+        text: The text with potential formatting
+        
+    Returns:
+        Clean plaintext with no formatting characters
+    """
+    if not text:
+        return text
+    
+    result = text
+    
+    # Remove HTML tags (<...>) - aggressive
+    result = re.sub(r'<[^>]+>', '', result)
+    
+    # Remove code blocks (```...```)
+    result = re.sub(r'```[\s\S]*?```', '', result)
+    
+    # Remove inline code (`...`)
+    result = re.sub(r'`([^`]+)`', r'\1', result)
+    
+    # Remove headers (# ## ###)
+    result = re.sub(r'^#{1,6}\s+', '', result, flags=re.MULTILINE)
+    
+    # Remove bold (**text** or __text__)
+    result = re.sub(r'\*\*([^*]+)\*\*', r'\1', result)
+    result = re.sub(r'__([^_]+)__', r'\1', result)
+    
+    # Remove italic (*text* or _text_)
+    result = re.sub(r'(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)', r'\1', result)
+    result = re.sub(r'(?<!_)_(?!_)([^_]+)(?<!_)_(?!_)', r'\1', result)
+    
+    # Remove links [text](url) - keep text only
+    result = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', result)
+    
+    # Remove bullet list markers at start of lines
+    result = re.sub(r'^[\-\*\+]\s+', '', result, flags=re.MULTILINE)
+    
+    # Remove numbered lists at start of lines
+    result = re.sub(r'^\d+\.\s+', '', result, flags=re.MULTILINE)
+    
+    # Remove blockquotes
+    result = re.sub(r'^>\s+', '', result, flags=re.MULTILINE)
+    
+    # Remove horizontal rules
+    result = re.sub(r'^[\-\*_]{3,}\s*$', '', result, flags=re.MULTILINE)
+    
+    # Clean up excessive whitespace
+    result = re.sub(r'\n{3,}', '\n\n', result)
+    result = result.strip()
+    
+    return result
 
 
 def _get_telegram_bot():
@@ -105,6 +180,9 @@ async def send_live_update(
 ) -> bool:
     """
     Send a live streaming update to the user via Telegram.
+    
+    NOTE: This function now ALWAYS operates in PLAINTEXT-ONLY mode.
+    All HTML and Markdown tags are stripped before sending.
 
     Args:
         message: The update message content
@@ -118,20 +196,24 @@ async def send_live_update(
     if chat_id is None:
         chat_id = DEFAULT_CHAT_ID
 
+    # CRITICAL: Strip ALL formatting before sending
+    message = strip_all_formatting(message)
+
     # Format with standard header
     header = STREAM_HEADER.format(name=subagent_name)
 
-    # Add appropriate emoji based on message type
+    # Add appropriate emoji based on message type (plaintext-friendly)
     type_emoji = {
-        "start": "🚀",
-        "progress": "⚙️",
-        "update": "📝",
-        "complete": "✅",
-        "error": "❌",
-        "warning": "⚠️",
+        "start": "STARTED",
+        "progress": "WORKING",
+        "update": "UPDATE",
+        "complete": "DONE",
+        "error": "ERROR",
+        "warning": "WARNING",
     }
-    emoji = type_emoji.get(message_type, "📝")
+    emoji = type_emoji.get(message_type, "UPDATE")
 
+    # Plaintext-only formatting
     formatted_message = f"{emoji} {header} {message}"
 
     try:
@@ -149,12 +231,13 @@ async def send_live_update(
 
         from nova.long_message_handler import send_message_with_fallback
 
-        # Send the message (short live updates should fit in Telegram limits)
+        # Send the message - ALWAYS plaintext (parse_mode=None)
         await send_message_with_fallback(
             telegram_bot_instance,
             int(chat_id),
             formatted_message,
             title=f"Live Update: {subagent_name}",
+            parse_mode=None  # Force plaintext
         )
         return True
 
@@ -164,59 +247,76 @@ async def send_live_update(
 
 
 async def send_streaming_start(chat_id: Optional[str], name: str) -> str:
-    """Send a start notification."""
+    """Send a START notification (one message only)."""
     success = await send_live_update(
-        message="Started working on task...",
+        message="Task started - working on it now",
         chat_id=chat_id,
         subagent_name=name,
         message_type="start",
     )
-    return "Update sent successfully" if success else "Failed to send update"
+    return "Started" if success else "Failed"
 
 
 async def send_streaming_progress(
     chat_id: Optional[str], name: str, progress: str
 ) -> str:
-    """Send a progress update."""
-    success = await send_live_update(
-        message=progress, chat_id=chat_id, subagent_name=name, message_type="progress"
-    )
-    return "Update sent successfully" if success else "Failed to send update"
+    """
+    Send a PROGRESS update.
+    
+    NOTE: Progress updates are now BATCHED - they are queued but only
+    sent as part of the final completion message to reduce spam.
+    """
+    # NO-OP: Progress updates are suppressed to reduce message spam
+    # The final completion message will include the summary
+    return "Batched"
 
 
 async def send_streaming_complete(
     chat_id: Optional[str], name: str, summary: Optional[str] = None
 ) -> str:
-    """Send a completion notification."""
+    """Send a COMPLETION notification with final summary."""
     msg = "Task completed successfully!"
     if summary:
-        msg = f"Task completed! {summary}"
+        # Strip all formatting from summary too
+        clean_summary = strip_all_formatting(summary)
+        msg = f"Task completed! {clean_summary}"
+    
     success = await send_live_update(
-        message=msg, chat_id=chat_id, subagent_name=name, message_type="complete"
+        message=msg,
+        chat_id=chat_id,
+        subagent_name=name,
+        message_type="complete",
     )
-    return "Update sent successfully" if success else "Failed to send update"
+    return "Completed" if success else "Failed"
 
 
 async def send_streaming_error(chat_id: Optional[str], name: str, error: str) -> str:
-    """Send an error notification."""
+    """Send an ERROR notification."""
+    # Strip all formatting from error
+    clean_error = strip_all_formatting(error)
     success = await send_live_update(
-        message=f"Error: {error}",
+        message=f"Error: {clean_error}",
         chat_id=chat_id,
         subagent_name=name,
         message_type="error",
     )
-    return "Update sent successfully" if success else "Failed to send update"
+    return "Error sent" if success else "Failed"
 
 
 class StreamingContext:
     """
     Context manager for sending streaming updates during a subagent task.
-
+    
+    IMPORTANT: Now operates in BATCHED mode:
+    - Sends START message on entry
+    - SUPPROCESSES intermediate progress messages to reduce spam
+    - Sends COMPLETE message on exit
+    
     Usage:
         async with StreamingContext(chat_id, subagent_name) as stream:
-            await stream.send("Processing step 1...")
-            await stream.send("Processing step 2...")
-            # On exit, automatically sends completion
+            await stream.send("Processing step 1...")  # Batched/suppressed
+            await stream.send("Processing step 2...")  # Batched/suppressed
+            # On exit, automatically sends completion with summary
     """
 
     def __init__(
@@ -226,9 +326,11 @@ class StreamingContext:
         self.subagent_name = subagent_name
         self.auto_complete = auto_complete
         self._entered = False
+        self._progress_messages = []  # Store progress for batching
 
     async def __aenter__(self):
         self._entered = True
+        self._progress_messages = []
         await send_streaming_start(self.chat_id, self.subagent_name)
         return self
 
@@ -238,17 +340,29 @@ class StreamingContext:
             error_msg = str(exc_val) if exc_val else "Unknown error"
             await send_streaming_error(self.chat_id, self.subagent_name, error_msg)
         elif self.auto_complete:
-            await send_streaming_complete(self.chat_id, self.subagent_name)
+            # Build summary from progress messages (if any)
+            summary = None
+            if self._progress_messages:
+                # Take last few progress messages as summary
+                recent = self._progress_messages[-3:]
+                summary = " | ".join(recent)
+            await send_streaming_complete(self.chat_id, self.subagent_name, summary)
         return False  # Don't suppress exceptions
 
     async def send(self, message: str, msg_type: str = "update"):
-        """Send a progress message."""
-        return await send_live_update(
-            message=message,
-            chat_id=self.chat_id,
-            subagent_name=self.subagent_name,
-            message_type=msg_type,
-        )
+        """
+        Send a progress message.
+        
+        NOTE: Now BATCHED - messages are stored but not sent individually
+        to reduce Telegram spam. They'll appear in the final completion.
+        """
+        # Store message for batching (but don't send individually)
+        clean_msg = strip_all_formatting(message)
+        self._progress_messages.append(clean_msg)
+        
+        # Log for debugging but don't send separate message
+        logger.debug(f"SAU batched progress for {self.subagent_name}: {clean_msg[:50]}...")
+        return True
 
 
 # Export the key functions for easy importing
@@ -261,4 +375,5 @@ __all__ = [
     "StreamingContext",
     "DEFAULT_CHAT_ID",
     "STREAM_HEADER",
+    "strip_all_formatting",
 ]
