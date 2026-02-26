@@ -347,7 +347,7 @@ async def create_subagent(
     sau_instructions = """## MANDATORY LIVE UPDATES (SAU) - REAL-TIME MODE:
 - YOU MUST use the streaming system to report milestones IMMEDIATELY as you progress.
 - Use the `send_streaming_start`, `send_streaming_progress`, and `send_streaming_complete` functions.
-- The header format for all updates is: [SAU: {agent_name}]
+- The header format for all updates is: [{name}]
 - Report at key milestones: initialization, tool execution, results processing, completion.
 - Each step should be sent as an INDIVIDUAL message - "Let me examine...", "Now I will implement...", etc.
 - NEVER wait for completion to send updates - report progress in real-time.

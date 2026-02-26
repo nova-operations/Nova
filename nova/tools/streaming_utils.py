@@ -16,8 +16,8 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# Standard header format for streaming messages
-STREAM_HEADER = "[SAU: {name}]"
+# Minimal header format for streaming messages - just the name in brackets
+STREAM_HEADER = "[{name}]"
 
 # Target chat_id for live updates (default: 98746403)
 DEFAULT_CHAT_ID = "98746403"
@@ -205,22 +205,12 @@ async def send_live_update(
     # CRITICAL: Strip ALL formatting before sending
     message = strip_all_formatting(message)
 
-    # Format with standard header
+    # Format with minimal header - just name in brackets
     header = STREAM_HEADER.format(name=subagent_name)
 
-    # Add appropriate emoji based on message type (plaintext-friendly)
-    type_emoji = {
-        "start": "STARTED",
-        "progress": "WORKING",
-        "update": "UPDATE",
-        "complete": "DONE",
-        "error": "ERROR",
-        "warning": "WARNING",
-    }
-    emoji = type_emoji.get(message_type, "UPDATE")
-
-    # Plaintext-only formatting
-    formatted_message = f"{emoji} {header} {message}"
+    # Minimal conversational format - no emojis, just clean identifier
+    # [AgentName] message flows naturally like a conversation
+    formatted_message = f"{header} {message}"
 
     try:
         # Get bot instance using our helper function

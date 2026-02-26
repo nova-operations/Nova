@@ -149,6 +149,55 @@ def get_prompt_transformer() -> MiddleOutTransformer:
     return _prompt_transformer
 
 
+async def get_reply_context(update: Update) -> str:
+    """
+    Extract reply context from the incoming update.
+    If the user is replying to a specific message, retrieve its content
+    and return it as context for the next agent interaction.
+    
+    Returns:
+        A string with the reply context, or empty string if no reply.
+    """
+    if not update.message or not update.message.reply_to_message:
+        return ""
+    
+    replied_msg = update.message.reply_to_message
+    
+    # Get the text content of the original message
+    original_text = ""
+    if replied_msg.text:
+        original_text = replied_msg.text
+    elif replied_msg.caption:
+        original_text = replied_msg.caption
+    
+    if not original_text:
+        # Try to get content from other message types
+        if hasattr(replied_msg, 'document') and replied_msg.document:
+            original_text = f"[Document: {replied_msg.document.file_name}]"
+        elif hasattr(replied_msg, 'photo') and replied_msg.photo:
+            original_text = "[Photo message]"
+        elif hasattr(replied_msg, 'voice') and replied_msg.voice:
+            original_text = "[Voice message]"
+        elif hasattr(replied_msg, 'audio') and replied_msg.audio:
+            original_text = f"[Audio: {replied_msg.audio.title or 'Unknown'}]"
+    
+    if not original_text:
+        return ""
+    
+    # Get message ID for reference
+    msg_id = replied_msg.message_id
+    
+    # Build the context string
+    context = f"""REPLY CONTEXT:
+You are replying to message ID {msg_id}:
+---
+{original_text[:1000]}  # Truncate if too long
+---
+
+"""
+    return context
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_authorized(user_id):
@@ -158,6 +207,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     chat_id = update.effective_chat.id
     session_id = str(user_id)
+
+    # Check for reply context
+    reply_context = await get_reply_context(update)
+    if reply_context:
+        # Prepend reply context to user message
+        user_message = reply_context + user_message
+        logging.info(f"User reply detected - injecting reply context (total chars: {len(user_message)})")
 
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
