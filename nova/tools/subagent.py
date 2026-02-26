@@ -66,7 +66,11 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     The actual coroutine that runs the subagent.
     Uses SAU (Subagent Automatic Updates) for real-time progress reporting.
     
-    IMPORTANT: Now operates in BATCHED mode - only sends START and COMPLETE messages.
+    REAL-TIME MODE: Each step is sent as an individual message immediately.
+    - "Initializing agent..." -> sent immediately
+    - "Executing task..." -> sent immediately  
+    - "Processing results..." -> sent immediately
+    - Completion -> sent immediately
     """
     subagent_data = SUBAGENTS.get(subagent_id)
     if not subagent_data:
@@ -76,18 +80,17 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     name = subagent_data.get("name", "Unknown")
     chat_id = subagent_data.get("chat_id")
 
-    # Create streaming context for SAU updates (batched mode)
-    # This will send START on entry and COMPLETE on exit automatically
+    # Create streaming context for SAU updates
+    # REAL-TIME MODE: Each stream.send() sends immediately to Telegram
     async with StreamingContext(chat_id, name, auto_complete=False) as stream:
         try:
             SUBAGENTS[subagent_id]["status"] = "running"
             
-            # Log - but don't send individual messages (batched)
             logging.info(
                 f"Subagent {subagent_id} started running: {instruction[:200]}..."
             )
 
-            # Send progress through the context (will be batched, not sent individually)
+            # REAL-TIME: Each of these is sent IMMEDIATELY to Telegram
             await stream.send("Initializing agent and processing task...")
             
             # Run the agent asynchronously
@@ -103,14 +106,13 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
 
             logging.info(f"Subagent {subagent_id} completed.")
             
-            # Send completion notification - the StreamingContext will handle this
-            # on __aexit__ with the summary from batched progress messages
+            # StreamingContext will send completion automatically on __aexit__
 
         except Exception as e:
             SUBAGENTS[subagent_id]["status"] = "failed"
             SUBAGENTS[subagent_id]["result"] = str(e)
 
-            # Send error notification via SAU
+            # Send error notification via SAU (sent immediately)
             await stream.send(f"Task failed: {str(e)}", msg_type="error")
             logging.error(f"Subagent {subagent_id} failed: {e}")
 
@@ -213,7 +215,12 @@ async def create_subagent(
 ) -> str:
     """
     Creates and starts a subagent in the background.
-    Uses SAU (Subagent Automatic Updates) as the default reporting mechanism.
+    Uses SAU (Subagent Automatic Updates) for REAL-TIME incremental reporting.
+
+    Each step is sent as an individual message immediately as it happens:
+    - "Let me examine..." -> immediate message
+    - "Now I will implement..." -> immediate message
+    - "Task completed" -> final message
 
     Args:
         name: A name for the subagent.
@@ -315,11 +322,13 @@ async def create_subagent(
 
     # MANDATORY SAU INSTRUCTIONS - These are injected into every subagent's system prompt
     # This ensures all subagents report milestones via SAU by default
-    sau_instructions = """## MANDATORY LIVE UPDATES (SAU) - DEFAULT BEHAVIOR:
+    # REAL-TIME MODE: Each update is sent immediately
+    sau_instructions = """## MANDATORY LIVE UPDATES (SAU) - REAL-TIME MODE:
 - YOU MUST use the streaming system to report milestones IMMEDIATELY as you progress.
 - Use the `send_streaming_start`, `send_streaming_progress`, and `send_streaming_complete` functions.
 - The header format for all updates is: [SAU: {agent_name}]
 - Report at key milestones: initialization, tool execution, results processing, completion.
+- Each step should be sent as an INDIVIDUAL message - "Let me examine...", "Now I will implement...", etc.
 - NEVER wait for completion to send updates - report progress in real-time.
 - If errors occur, use `send_streaming_error` immediately.
 - This is NOT optional - it is the MANDATORY default for all subagent reporting.
@@ -382,9 +391,9 @@ async def create_subagent(
         "chat_id": chat_id,
     }
 
-    # Heartbeat monitoring DISABLED - SAU is the mandatory default
+    # Heartbeat monitoring DISABLED - SAU real-time is the mandatory default
     logging.info(
-        f"Subagent '{name}' created - SAU live updates enabled (heartbeat disabled)"
+        f"Subagent '{name}' created - SAU real-time updates enabled (heartbeat disabled)"
     )
 
     # REMOVED: Duplicate notification sending

@@ -2,9 +2,9 @@
 Streaming update utilities for subagents.
 Provides real-time progress notifications to Telegram users.
 
-IMPORTANT: This module operates in PLAINTEXT-ONLY mode with MESSAGE BATCHING.
-- Only sends "Started" and "Completed" messages per subagent
+REAL-TIME MODE: Each progress update is sent immediately as it happens.
 - All HTML and Markdown tags are aggressively stripped before sending
+- No message batching - see thoughts as they happen
 """
 
 import asyncio
@@ -23,6 +23,9 @@ DEFAULT_CHAT_ID = "98746403"
 
 # Cache for bot instance (non-None only)
 _cached_bot = None
+
+# Real-time mode flag - when True, sends each update immediately
+REAL_TIME_MODE = True
 
 
 def strip_all_formatting(text: str) -> str:
@@ -261,14 +264,23 @@ async def send_streaming_progress(
     chat_id: Optional[str], name: str, progress: str
 ) -> str:
     """
-    Send a PROGRESS update.
+    Send a PROGRESS update in REAL-TIME mode.
     
-    NOTE: Progress updates are now BATCHED - they are queued but only
-    sent as part of the final completion message to reduce spam.
+    Each progress update is sent IMMEDIATELY as it happens.
+    No batching - user sees each thought as it occurs.
     """
-    # NO-OP: Progress updates are suppressed to reduce message spam
-    # The final completion message will include the summary
-    return "Batched"
+    if not REAL_TIME_MODE:
+        # Fallback to batched if ever disabled
+        return "Batched"
+    
+    # Send immediately - real-time mode
+    success = await send_live_update(
+        message=progress,
+        chat_id=chat_id,
+        subagent_name=name,
+        message_type="progress",
+    )
+    return "Sent" if success else "Failed"
 
 
 async def send_streaming_complete(
@@ -307,16 +319,16 @@ class StreamingContext:
     """
     Context manager for sending streaming updates during a subagent task.
     
-    IMPORTANT: Now operates in BATCHED mode:
+    REAL-TIME MODE ENABLED:
     - Sends START message on entry
-    - SUPPROCESSES intermediate progress messages to reduce spam
+    - Sends each progress message IMMEDIATELY (no batching)
     - Sends COMPLETE message on exit
     
     Usage:
         async with StreamingContext(chat_id, subagent_name) as stream:
-            await stream.send("Processing step 1...")  # Batched/suppressed
-            await stream.send("Processing step 2...")  # Batched/suppressed
-            # On exit, automatically sends completion with summary
+            await stream.send("Processing step 1...")  # Sent immediately
+            await stream.send("Processing step 2...")  # Sent immediately
+            # On exit, automatically sends completion
     """
 
     def __init__(
@@ -326,7 +338,7 @@ class StreamingContext:
         self.subagent_name = subagent_name
         self.auto_complete = auto_complete
         self._entered = False
-        self._progress_messages = []  # Store progress for batching
+        self._progress_messages = []  # Keep for logging/debugging
 
     async def __aenter__(self):
         self._entered = True
@@ -351,17 +363,30 @@ class StreamingContext:
 
     async def send(self, message: str, msg_type: str = "update"):
         """
-        Send a progress message.
+        Send a progress message in REAL-TIME.
         
-        NOTE: Now BATCHED - messages are stored but not sent individually
-        to reduce Telegram spam. They'll appear in the final completion.
+        Each message is sent IMMEDIATELY to Telegram.
+        No batching - user sees thoughts as they happen.
         """
-        # Store message for batching (but don't send individually)
+        # Clean message
         clean_msg = strip_all_formatting(message)
+        
+        # Store for logging/debugging
         self._progress_messages.append(clean_msg)
         
-        # Log for debugging but don't send separate message
-        logger.debug(f"SAU batched progress for {self.subagent_name}: {clean_msg[:50]}...")
+        # Send IMMEDIATELY in real-time mode
+        if REAL_TIME_MODE:
+            await send_live_update(
+                message=clean_msg,
+                chat_id=self.chat_id,
+                subagent_name=self.subagent_name,
+                message_type="progress",
+            )
+            logger.debug(f"SAU real-time progress for {self.subagent_name}: {clean_msg[:50]}...")
+        else:
+            # Fallback to batching if ever disabled
+            logger.debug(f"SAU batched progress for {self.subagent_name}: {clean_msg[:50]}...")
+        
         return True
 
 
@@ -376,4 +401,5 @@ __all__ = [
     "DEFAULT_CHAT_ID",
     "STREAM_HEADER",
     "strip_all_formatting",
+    "REAL_TIME_MODE",
 ]
