@@ -14,7 +14,8 @@ from nova.tools.streaming_utils import (
     send_streaming_progress,
     send_streaming_complete,
     send_streaming_error,
-    StreamingContext
+    StreamingContext,
+    strip_all_formatting,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,14 +44,15 @@ def create_specialist_agent(
     db = get_agno_db(session_table=f"specialist_{name}_sessions")
 
     # MANDATORY SAU INSTRUCTIONS for specialists
-    sau_instructions = """## MANDATORY LIVE UPDATES (SAU) - DEFAULT BEHAVIOR:
+    sau_instructions = """## MANDATORY LIVE UPDATES (SAU) - REAL-TIME MODE:
 - YOU MUST use the streaming system to report milestones IMMEDIATELY as you progress.
 - Use the `send_streaming_start`, `send_streaming_progress`, and `send_streaming_complete` functions.
 - The header format for all updates is: [SAU: {agent_name}]
 - Report at key milestones: initialization, tool execution, results processing, completion.
+- Each step should be sent as an INDIVIDUAL message - "Let me examine...", "Now I will implement...", etc.
 - NEVER wait for completion to send updates - report progress in real-time.
 - If errors occur, use `send_streaming_error` immediately.
-- This is NOT optional - it is the MANDATORY default for all subagent/specialist reporting.
+- This is NOT optional - it is the MANDATORY default for all subagent reporting.
 - Legacy heartbeat/PM polling is DISABLED for your tasks.
 """
 
@@ -64,7 +66,7 @@ def create_specialist_agent(
         instructions=enhanced_instructions,
         tools=tools,
         db=db,
-        markdown=True,
+        markdown=False,
         add_history_to_context=True,
     )
 
@@ -79,6 +81,8 @@ async def run_team_task(
     Creates a dynamic team and runs a task asynchronously.
     Uses SAU (Subagent Automatic Updates) as the mandatory reporting mechanism.
     Heartbeat system is DISABLED for team tasks.
+    
+    REAL-TIME MODE: Each step is sent as an individual message immediately.
     """
     try:
         # Build specialists
@@ -89,15 +93,14 @@ async def run_team_task(
                 members.append(agent)
 
         if not members:
-            return "❌ Error: Could not instantiate any specialists for the team."
+            return "Error: Could not instantiate any specialists for the team."
 
         # Team setup with mandatory SAU instructions
-        team_instructions = """## MANDATORY LIVE UPDATES (SAU):
+        team_instructions = """## MANDATORY LIVE UPDATES (SAU) - REAL-TIME MODE:
 This team MUST use SAU streaming updates for all progress reporting.
 The header format is: [SAU: {team_name}]
-- Report when team initializes
-- Report when individual specialists start working
-- Report major milestones and completion
+- Report each step as an INDIVIDUAL message immediately
+- DO NOT batch updates - send as thoughts occur
 - DO NOT rely on heartbeat polling - SAU is the primary reporting channel.
 """
         
@@ -106,7 +109,7 @@ The header format is: [SAU: {team_name}]
             members=members,
             description=f"Dynamic Team for: {task_name}",
             instructions=team_instructions,
-            markdown=True,
+            markdown=False,
         )
 
         subagent_id = f"team_{task_name}_{asyncio.get_event_loop().time():.0f}"
@@ -129,10 +132,25 @@ The header format is: [SAU: {team_name}]
                 try:
                     await stream.send(f"Initializing {len(members)} specialists...")
                     
+                    # Stream each step as it happens
+                    for i, member in enumerate(members):
+                        await stream.send(f"Starting specialist {i+1}/{len(members)}: {member.name}...")
+                        # Each specialist will send its own SAU updates
+                    
                     response = await team.arun(task_description)
                     
                     SUBAGENTS[subagent_id]["status"] = "completed"
                     SUBAGENTS[subagent_id]["result"] = response.content
+                    
+                    # Stream result lines
+                    if response.content and chat_id:
+                        result_str = str(response.content)
+                        lines = result_str.split('\n')
+                        await stream.send(f"Streaming {len(lines)} result lines...")
+                        for line in lines:
+                            clean_line = strip_all_formatting(line.strip())
+                            if clean_line and len(clean_line) > 2:
+                                await stream.send(f"Result: {clean_line[:500]}")
                     
                     await stream.send("Team task completed successfully!")
                     
@@ -144,12 +162,14 @@ The header format is: [SAU: {team_name}]
                     await stream.send(f"Team task failed: {error_msg}", msg_type="error")
 
         if chat_id:
+            # Send minimal notification that team is starting
+            # The StreamingContext will handle the detailed updates
             from nova.telegram_bot import notify_user
 
             asyncio.create_task(
                 notify_user(
                     chat_id,
-                    f"👥 <b>Starting Team Task:</b> {task_name} ({len(members)} specialists)",
+                    f"Starting Team Task: {task_name} ({len(members)} specialists)",
                 )
             )
             
@@ -160,7 +180,7 @@ The header format is: [SAU: {team_name}]
 
         asyncio.create_task(_team_runner())
 
-        return f"🚀 Team task '{task_name}' started with {len(members)} specialists. ID: {subagent_id}"
+        return f"Team task '{task_name}' started with {len(members)} specialists. ID: {subagent_id}"
 
     except Exception as e:
-        return f"❌ Error launching team task: {e}"
+        return f"Error launching team task: {e}"

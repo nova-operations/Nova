@@ -2,9 +2,10 @@
 Streaming update utilities for subagents.
 Provides real-time progress notifications to Telegram users.
 
-REAL-TIME MODE: Each progress update is sent immediately as it happens.
+REAL-TIME MODE: Each progress update is sent IMMEDIATELY as it happens.
 - All HTML and Markdown tags are aggressively stripped before sending
-- No message batching - see thoughts as they happen
+- ZERO BAU - no message batching - see thoughts as they happen
+- Each line of output is sent as an individual Telegram message
 """
 
 import asyncio
@@ -24,7 +25,7 @@ DEFAULT_CHAT_ID = "98746403"
 # Cache for bot instance (non-None only)
 _cached_bot = None
 
-# Real-time mode flag - when True, sends each update immediately
+# Real-time mode flag - MUST be True for instant delivery
 REAL_TIME_MODE = True
 
 
@@ -186,6 +187,8 @@ async def send_live_update(
     
     NOTE: This function now ALWAYS operates in PLAINTEXT-ONLY mode.
     All HTML and Markdown tags are stripped before sending.
+    
+    CRITICAL: This sends IMMEDIATELY - no batching, no waiting.
 
     Args:
         message: The update message content
@@ -235,6 +238,7 @@ async def send_live_update(
         from nova.long_message_handler import send_message_with_fallback
 
         # Send the message - ALWAYS plaintext (parse_mode=None)
+        # IMMEDIATELY - no batching
         await send_message_with_fallback(
             telegram_bot_instance,
             int(chat_id),
@@ -242,6 +246,9 @@ async def send_live_update(
             title=f"Live Update: {subagent_name}",
             parse_mode=None  # Force plaintext
         )
+        
+        # Small yield to allow other tasks to run
+        await asyncio.sleep(0)
         return True
 
     except Exception as e:
@@ -273,7 +280,7 @@ async def send_streaming_progress(
         # Fallback to batched if ever disabled
         return "Batched"
     
-    # Send immediately - real-time mode
+    # Send immediately - real-time mode (ZERO LATENCY)
     success = await send_live_update(
         message=progress,
         chat_id=chat_id,
@@ -374,7 +381,7 @@ class StreamingContext:
         # Store for logging/debugging
         self._progress_messages.append(clean_msg)
         
-        # Send IMMEDIATELY in real-time mode
+        # Send IMMEDIATELY in real-time mode (ZERO LATENCY)
         if REAL_TIME_MODE:
             await send_live_update(
                 message=clean_msg,

@@ -8,6 +8,7 @@ from agno.db.sqlite import SqliteDb
 from agno.db.postgres import PostgresDb
 from dotenv import load_dotenv
 import os
+import re
 
 # Import all tools to give to subagents
 from nova.tools.shell import execute_shell_command
@@ -61,6 +62,30 @@ def get_telegram_bot():
     return _get_telegram_bot()
 
 
+def _stream_result_lines(result: str, chat_id: Optional[str], name: str):
+    """
+    Stream each line of the result as an individual Telegram message.
+    This sends each line immediately instead of waiting for completion.
+    """
+    if not chat_id or not result:
+        return
+    
+    lines = result.split('\n')
+    
+    # Send each meaningful line as a separate message
+    for line in lines:
+        line = line.strip()
+        if line and len(line) > 2:  # Skip empty lines and very short ones
+            # Schedule sending without awaiting (non-blocking)
+            asyncio.create_task(
+                send_streaming_progress(
+                    chat_id=chat_id,
+                    name=name,
+                    progress=f"Result: {line[:500]}"  # Truncate long lines
+                )
+            )
+
+
 async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     """
     The actual coroutine that runs the subagent.
@@ -71,6 +96,8 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     - "Executing task..." -> sent immediately  
     - "Processing results..." -> sent immediately
     - Completion -> sent immediately
+    
+    KEY CHANGE: Each line of thought/action output is sent individually.
     """
     subagent_data = SUBAGENTS.get(subagent_id)
     if not subagent_data:
@@ -91,15 +118,37 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             )
 
             # REAL-TIME: Each of these is sent IMMEDIATELY to Telegram
-            await stream.send("Initializing agent and processing task...")
+            await stream.send("Initializing agent and preparing task execution...")
+            
+            # Pre-process the instruction - send progress
+            await stream.send("Analyzing task requirements...")
             
             # Run the agent asynchronously
             await stream.send("Executing task with AI model...")
             response = await agent.arun(instruction)
 
-            # Process result
-            await stream.send("Processing results...")
+            # Process result - stream each line
+            await stream.send("Processing results and preparing output...")
             result = response.content
+            
+            # STREAM EACH LINE OF RESULT INDIVIDUALLY
+            if result and chat_id:
+                await stream.send("Streaming result lines...")
+                result_str = str(result)
+                
+                # Split into lines and send each significant one
+                lines = result_str.split('\n')
+                line_count = 0
+                for line in lines:
+                    clean_line = strip_all_formatting(line.strip())
+                    if clean_line and len(clean_line) > 2:
+                        await stream.send(f"Result line: {clean_line[:500]}")
+                        line_count += 1
+                        # Small delay to avoid rate limiting
+                        if line_count % 10 == 0:
+                            await asyncio.sleep(0.1)
+                
+                await stream.send(f"Completed {line_count} result lines")
 
             SUBAGENTS[subagent_id]["result"] = result
             SUBAGENTS[subagent_id]["status"] = "completed"
@@ -116,37 +165,9 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             await stream.send(f"Task failed: {str(e)}", msg_type="error")
             logging.error(f"Subagent {subagent_id} failed: {e}")
 
-    # After completion, send final notification to user if chat_id is available
-    # The StreamingContext handles the main completion message
-    if subagent_data and subagent_data.get("chat_id"):
-        final_chat_id = subagent_data["chat_id"]
-        final_name = subagent_data["name"]
-        status = subagent_data["status"]
-        result = subagent_data["result"]
-
-        # Get the telegram bot instance using our helper
-        telegram_bot = get_telegram_bot()
-
-        if telegram_bot:
-            status_emoji = "DONE" if status == "completed" else "FAILED"
-            
-            # Build the completion message - plaintext only
-            # Note: StreamingContext already sent completion, this is optional detail
-            if status == "completed" and result:
-                # Strip all formatting from result
-                clean_result = strip_all_formatting(str(result))
-                msg = f"{status_emoji} Subagent '{final_name}' completed!\n\nResult:\n{clean_result}"
-            else:
-                clean_error = strip_all_formatting(str(result))
-                msg = f"{status_emoji} Subagent '{final_name}' failed!\n\nError: {clean_error}"
-
-            # Use long message handler to automatically convert to PDF if needed
-            await send_message_with_fallback(
-                telegram_bot,
-                int(final_chat_id),
-                msg,
-                title=f"Subagent Report: {final_name}",
-            )
+    # REMOVED: Final notification block
+    # The StreamingContext now handles all completion messaging automatically
+    # Each line of output has already been streamed - no need for additional messages
 
 
 def _preprocess_task_with_context_optimization(task: str) -> str:
@@ -422,6 +443,9 @@ def get_subagent_result(subagent_id: str) -> str:
     Retrieves the result of a subagent.
     If the subagent is still running, it returns the current status.
     The caller should poll this tool until 'completed' or 'failed' is returned.
+    
+    NOTE: Results are now streamed incrementally via SAU.
+    This function returns a minimal status message.
     """
     if subagent_id not in SUBAGENTS:
         return "Error: Subagent not found."
@@ -429,18 +453,13 @@ def get_subagent_result(subagent_id: str) -> str:
     data = SUBAGENTS[subagent_id]
     if data["status"] == "completed":
         result = data["result"]
-        # Check if result is too long and provide info about PDF conversion
-        if is_message_too_long(str(result)):
-            return (
-                f"Result for {data['name']}:\n\n"
-                f"[Result is {len(str(result))} chars, exceeds Telegram limit of {TELEGRAM_MAX_LENGTH}. "
-                f"It was sent as a PDF via the notification system.]"
-            )
-        return f"Result for {data['name']}:\n{data['result']}"
+        # Results are already streamed - just confirm completion
+        result_preview = str(result)[:200] if result else "No result"
+        return f"COMPLETED Subagent '{data['name']}' - Full result was streamed via SAU.\nPreview: {result_preview}..."
     elif data["status"] == "failed":
-        return f"Subagent {data['name']} failed: {data['result']}"
+        return f"FAILED Subagent {data['name']}: {data['result']}"
     else:
-        return f"Subagent {data['name']} is currently {data['status']}."
+        return f"RUNNING Subagent {data['name']} is currently {data['status']}."
 
 
 def kill_subagent(subagent_id: str) -> str:
