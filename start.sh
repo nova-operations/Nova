@@ -10,6 +10,28 @@ mkdir -p "$SKILLS_DIR"
 
 echo "🚀 Starting Nova environment setup..."
 
+# Function to send startup notification via Python
+send_startup_notification() {
+    python3 -c "
+import os
+import sys
+
+# Add the repo to path if it exists
+if os.path.exists('$REPO_DIR'):
+    sys.path.insert(0, '$REPO_DIR')
+
+try:
+    from nova.tools.telegram_notifier import notify_system_online
+    success = notify_system_online()
+    if success:
+        print('✅ Startup notification sent to Telegram')
+    else:
+        print('⚠️ Startup notification failed or disabled')
+except Exception as e:
+    print(f'⚠️ Could not send startup notification: {e}')
+"
+}
+
 # Check if GITHUB_TOKEN and GITHUB_REPO are set
 if [ -z "$GITHUB_TOKEN" ] || [ -z "$GITHUB_REPO" ]; then
     echo "⚠️ GITHUB_TOKEN or GITHUB_REPO not set. Skipping git setup."
@@ -49,6 +71,10 @@ else
     echo "📂 Repo directory not found, staying in /app"
     cd /app
 fi
+
+# Send system online notification to Telegram
+echo "📨 Sending startup notification..."
+send_startup_notification
 
 # Run the bot
 echo "🤖 Launching Nova Bot..."

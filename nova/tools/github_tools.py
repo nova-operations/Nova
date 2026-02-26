@@ -69,6 +69,13 @@ def push_to_github(
         )
 
         if result.returncode == 0:
+            # Send Telegram notification for deployment initiation
+            try:
+                from nova.tools.telegram_notifier import notify_deployment_initiated
+                notify_deployment_initiated(commit_message)
+            except Exception as notif_err:
+                logging.warning(f"Failed to send deployment notification: {notif_err}")
+            
             return f"Successfully pushed changes to {branch}. Deployment should start shortly."
         else:
             return f"Error pushing to GitHub: {result.stderr}"
