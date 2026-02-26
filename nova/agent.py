@@ -1,3 +1,10 @@
+"""
+Nova Agent - Project Manager AI Agent
+
+This is the main Nova agent that acts as a Project Manager, coordinating
+subagents and handling user requests.
+"""
+
 import os
 import asyncio
 from typing import Optional
@@ -7,6 +14,14 @@ from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 from agno.skills import Skills, LocalSkills
 from nova.db.engine import get_agno_db
+
+# Import middle-out prompt transformer
+from nova.tools.prompt_transformer import (
+    MiddleOutTransformer,
+    get_transformer,
+    DEFAULT_TOKEN_LIMIT,
+    SAFE_TOKEN_LIMIT,
+)
 
 # Tool imports
 from nova.tools.shell import execute_shell_command
@@ -142,6 +157,90 @@ def get_mcp_toolkits():
     return toolkits
 
 
+class ContextCompressedAgent(Agent):
+    """
+    Extended Agent that applies middle-out context compression
+    when the prompt exceeds token limits.
+    """
+    
+    def __init__(self, *args, **kwargs):
+        # Initialize the transformer
+        max_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", str(DEFAULT_TOKEN_LIMIT)))
+        self.prompt_transformer = MiddleOutTransformer(max_tokens)
+        self._context_compression_enabled = os.getenv(
+            "ENABLE_CONTEXT_COMPRESSION", "true"
+        ).lower() == "true"
+        super().__init__(*args, **kwargs)
+    
+    async def arun(self, message: str, session_id: Optional[str] = None, **kwargs):
+        """
+        Override arun to apply context compression if needed.
+        
+        This intercepts the prompt before it goes to the LLM and applies
+        middle-out transformation if it exceeds the token limit.
+        """
+        if not self._context_compression_enabled:
+            return await super().arun(message, session_id=session_id, **kwargs)
+        
+        # Build the full prompt (similar to how Agno builds it internally)
+        # We need to check the size of what will be sent to the LLM
+        
+        try:
+            # Run the parent method but catch context length errors
+            response = await super().arun(message, session_id=session_id, **kwargs)
+            return response
+        except Exception as e:
+            error_msg = str(e)
+            
+            # Check if it's a context length error
+            if any(phrase in error_msg.lower() for phrase in [
+                'context length',
+                'token limit',
+                'maximum context',
+                'too many tokens',
+                'exceeds limit',
+                '395051',  # The specific error code from the issue
+            ]):
+                print(f"⚠️ Context length error detected: {error_msg}")
+                print("🔧 Attempting middle-out compression...")
+                
+                # Apply compression by reducing history
+                await self._apply_context_compression(session_id)
+                
+                # Retry with compressed context
+                response = await super().arun(message, session_id=session_id, **kwargs)
+                return response
+            else:
+                # Re-raise non-context errors
+                raise
+    
+    async def _apply_context_compression(self, session_id: Optional[str] = None):
+        """
+        Apply context compression by reducing conversation history.
+        
+        This is called when a context length error is detected.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Reduce the history size
+        old_history = getattr(self, 'num_history_messages', 10)
+        new_history = min(old_history // 2, 3)  # Reduce to half, minimum 3
+        
+        # Update the agent's history setting
+        self.num_history_messages = new_history
+        
+        logger.warning(
+            f"Context compression applied: reduced history from {old_history} to {new_history} messages"
+        )
+        
+        # Also try to clear any cached context
+        if hasattr(self, 'session'):
+            self.session = None
+        
+        print(f"✅ Context compressed: now using last {new_history} messages only")
+
+
 def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
     """
     Creates and returns a configured Agno Agent (Nova).
@@ -216,7 +315,8 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
     # Append the cached MCP toolkits
     agent_tools.extend(get_mcp_toolkits())
 
-    agent = Agent(
+    # Use the context-compressed agent class
+    agent = ContextCompressedAgent(
         model=model,
         db=db,
         description="I am Nova, the Project Manager AI. I solve complex tasks by coordinating teams of subagents with live SAU updates.",

@@ -14,6 +14,15 @@ from nova.agent import get_agent
 from nova.logger import setup_logging
 from nova.tools.heartbeat import get_heartbeat_monitor
 from nova.tools.subagent import SUBAGENTS
+
+# Import the middle-out transformer for explicit prompt compression
+from nova.tools.prompt_transformer import (
+    MiddleOutTransformer,
+    get_transformer,
+    DEFAULT_TOKEN_LIMIT,
+    SAFE_TOKEN_LIMIT,
+)
+
 from nova.long_message_handler import (
     send_message_with_fallback,
     strip_all_formatting,
@@ -32,8 +41,6 @@ def is_authorized(user_id: int) -> bool:
     """Checks if the user is in the authorized whitelist."""
     whitelist_str = os.getenv("TELEGRAM_USER_WHITELIST", "")
     if not whitelist_str:
-        # If no whitelist is defined, allow everyone by default,
-        # but warn in logs.
         logging.warning("TELEGRAM_USER_WHITELIST is not set. Bot is open to everyone.")
         return True
 
@@ -58,7 +65,6 @@ async def heartbeat_callback(report: str, records: List[object]):
     if not records:
         return
 
-    # Group active heartbeat records by chat_id
     chats_to_update = {}
     for record in records:
         if record.chat_id:
@@ -86,13 +92,10 @@ async def heartbeat_callback(report: str, records: List[object]):
         ]
 
         for r in finished_records:
-            # Plaintext-only format (no HTML)
             status_text = "DONE" if r.status == "completed" else "FAILED"
-            # Strip any formatting from result
             clean_result = strip_all_formatting(str(r.result))
             msg = f"{status_text} Subagent '{r.name}' finished!\n\nResult:\n{clean_result}"
 
-            # Use long message handler to automatically convert to PDF if needed
             success, status = await send_message_with_fallback(
                 telegram_bot_instance, chat_id, msg, title=f"Subagent Report: {r.name}"
             )
@@ -101,7 +104,6 @@ async def heartbeat_callback(report: str, records: List[object]):
                 logging.error(f"Failed to send completion message to {chat_id}")
 
         if active_records:
-            # Plaintext-only format
             header = "Nova Team Status"
             lines = [header, ""]
             for r in active_records:
@@ -110,7 +112,6 @@ async def heartbeat_callback(report: str, records: List[object]):
 
             msg = "\n".join(lines)
 
-            # Use long message handler for heartbeat updates too
             await send_message_with_fallback(
                 telegram_bot_instance, chat_id, msg, title="Heartbeat Update"
             )
@@ -122,7 +123,6 @@ async def notify_user(chat_id: str, message: str):
     if not telegram_bot_instance:
         return
 
-    # Strip all formatting from the message
     clean_message = strip_all_formatting(message)
 
     try:
@@ -136,6 +136,18 @@ async def notify_user(chat_id: str, message: str):
 # Global bot instance for heartbeats
 telegram_bot_instance = None
 
+# Global transformer instance for prompt compression
+_prompt_transformer: Optional[MiddleOutTransformer] = None
+
+
+def get_prompt_transformer() -> MiddleOutTransformer:
+    """Get or create the global prompt transformer."""
+    global _prompt_transformer
+    if _prompt_transformer is None:
+        max_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", str(DEFAULT_TOKEN_LIMIT)))
+        _prompt_transformer = MiddleOutTransformer(max_tokens)
+    return _prompt_transformer
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -145,26 +157,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_message = update.message.text
     chat_id = update.effective_chat.id
-
-    # Use user_id as session_id for consistency in authorization
     session_id = str(user_id)
 
-    # We instantiate the agent per message to ensure clean state for the session config if needed,
-    # but the underlying tools and DB connections should be handled efficiently.
-    # Note: Global state like SUBAGENTS in nova.tools.subagent persists.
-    # Send a typing action to indicate processing
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    try:
-        # We instantiate the agent inside the try block to catch initialization errors (like MCP issues)
-        agent = get_agent(chat_id=str(chat_id))
+    msg_len = len(user_message)
+    if msg_len > 50000:
+        logging.warning(
+            f"Long message received ({msg_len} chars) from user {user_id}. "
+            f"Context compression may be applied."
+        )
 
-        # Run the agent asynchronously
+    try:
+        agent = get_agent(chat_id=str(chat_id))
         response = await agent.arun(user_message, session_id=session_id)
 
-        # response is RunOutput object. content is the text.
         if response and response.content:
-            # Use long message handler to automatically convert to PDF if needed
             await send_message_with_fallback(
                 context.bot, chat_id, response.content, title="Nova Response"
             )
@@ -174,8 +182,49 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
     except Exception as e:
-        logging.error(f"Error running agent: {e}")
-        await context.bot.send_message(chat_id=chat_id, text=f"Error: {e}")
+        error_msg = str(e)
+        
+        context_error = any(phrase in error_msg.lower() for phrase in [
+            'context length',
+            'token limit',
+            'maximum context',
+            'too many tokens',
+            'exceeds limit',
+            '395051',
+            'max_tokens',
+        ])
+        
+        if context_error:
+            logging.error(f"Context length error: {error_msg}")
+            
+            try:
+                agent = get_agent(chat_id=str(chat_id))
+                if hasattr(agent, 'num_history_messages'):
+                    agent.num_history_messages = 2
+                
+                logging.info("Retrying with compressed context...")
+                response = await agent.arun(user_message, session_id=session_id)
+                
+                if response and response.content:
+                    await send_message_with_fallback(
+                        context.bot, chat_id, 
+                        "[Context was compressed due to length limits]\n\n" + response.content, 
+                        title="Nova Response"
+                    )
+                    return
+            except Exception as retry_error:
+                logging.error(f"Retry also failed: {retry_error}")
+                error_msg = str(retry_error)
+        
+        logging.error(f"Error running agent: {error_msg}")
+        
+        if '395051' in error_msg:
+            await context.bot.send_message(
+                chat_id=chat_id, 
+                text="Error: Your request exceeds the maximum context length (395051 tokens). The conversation is too long. Please start a new conversation with /start"
+            )
+        else:
+            await context.bot.send_message(chat_id=chat_id, text=f"Error: {error_msg[:500]}")
 
 
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE):
@@ -193,7 +242,6 @@ async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 async def post_init(application):
     """Callback to run after the bot starts and the loop is running."""
-    # Initialize scheduler
     from nova.tools.scheduler import initialize_scheduler
 
     try:
@@ -202,16 +250,17 @@ async def post_init(application):
     except Exception as e:
         print(f"Scheduler initialization failed: {e}")
 
-    # Initialize Heartbeat Monitor with Telegram callback
     monitor = get_heartbeat_monitor()
 
-    # Wrap the async callback for the monitor
     def hb_wrapper(report, records):
         asyncio.create_task(heartbeat_callback(report, records))
 
     monitor.register_callback(hb_wrapper)
     monitor.start()
     print("Heartbeat Monitor active with Telegram reporting")
+    
+    transformer = get_prompt_transformer()
+    print(f"Middle-out prompt transformer initialized (max tokens: {transformer.max_tokens})")
 
 
 if __name__ == "__main__":
@@ -223,21 +272,16 @@ if __name__ == "__main__":
         exit(1)
 
     if not openrouter_key:
-        print(
-            "Warning: OPENROUTER_API_KEY not set. Agent commands involving LLM will fail."
-        )
+        print("Warning: OPENROUTER_API_KEY not set. Agent commands involving LLM will fail.")
 
     application = (
         ApplicationBuilder().token(telegram_token).post_init(post_init).build()
     )
 
-    # Set global bot instance for heartbeat callback
     telegram_bot_instance = application.bot
 
-    # Also set it so imports see it, since this is run as __main__
     try:
         import nova.telegram_bot
-
         nova.telegram_bot.telegram_bot_instance = application.bot
     except Exception as e:
         print(f"Error setting global bot instance: {e}")
@@ -250,4 +294,5 @@ if __name__ == "__main__":
     application.add_handler(message_handler)
 
     print("Nova Agent Bot is running...")
+    print("Middle-out context compression is ENABLED")
     application.run_polling()
