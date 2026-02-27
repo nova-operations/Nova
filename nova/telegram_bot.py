@@ -37,6 +37,12 @@ import sys
 setup_logging()
 
 
+# Track active tasks per chat to ensure smooth coordination
+_ACTIVE_TASKS = {}  # chat_id -> task_name/status
+_TASK_QUEUES = {}  # chat_id -> List of messages
+_PROCESSING_LOCKS = {}  # chat_id -> asyncio.Lock
+
+
 def is_authorized(user_id: int) -> bool:
     """Checks if the user is in the authorized whitelist."""
     whitelist_str = os.getenv("TELEGRAM_USER_WHITELIST", "")
@@ -127,7 +133,10 @@ async def notify_user(chat_id: str, message: str):
 
     try:
         await send_message_with_fallback(
-            telegram_bot_instance, int(chat_id), clean_message, title="Nova Notification"
+            telegram_bot_instance,
+            int(chat_id),
+            clean_message,
+            title="Nova Notification",
         )
     except Exception as e:
         logging.error(f"Failed proactive notification to {chat_id}: {e}")
@@ -154,39 +163,39 @@ async def get_reply_context(update: Update) -> str:
     Extract reply context from the incoming update.
     If the user is replying to a specific message, retrieve its content
     and return it as context for the next agent interaction.
-    
+
     Returns:
         A string with the reply context, or empty string if no reply.
     """
     if not update.message or not update.message.reply_to_message:
         return ""
-    
+
     replied_msg = update.message.reply_to_message
-    
+
     # Get the text content of the original message
     original_text = ""
     if replied_msg.text:
         original_text = replied_msg.text
     elif replied_msg.caption:
         original_text = replied_msg.caption
-    
+
     if not original_text:
         # Try to get content from other message types
-        if hasattr(replied_msg, 'document') and replied_msg.document:
+        if hasattr(replied_msg, "document") and replied_msg.document:
             original_text = f"[Document: {replied_msg.document.file_name}]"
-        elif hasattr(replied_msg, 'photo') and replied_msg.photo:
+        elif hasattr(replied_msg, "photo") and replied_msg.photo:
             original_text = "[Photo message]"
-        elif hasattr(replied_msg, 'voice') and replied_msg.voice:
+        elif hasattr(replied_msg, "voice") and replied_msg.voice:
             original_text = "[Voice message]"
-        elif hasattr(replied_msg, 'audio') and replied_msg.audio:
+        elif hasattr(replied_msg, "audio") and replied_msg.audio:
             original_text = f"[Audio: {replied_msg.audio.title or 'Unknown'}]"
-    
+
     if not original_text:
         return ""
-    
+
     # Get message ID for reference
     msg_id = replied_msg.message_id
-    
+
     # Build the context string
     context = f"""REPLY CONTEXT:
 You are replying to message ID {msg_id}:
@@ -211,76 +220,66 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check for reply context
     reply_context = await get_reply_context(update)
     if reply_context:
-        # Prepend reply context to user message
         user_message = reply_context + user_message
-        logging.info(f"User reply detected - injecting reply context (total chars: {len(user_message)})")
 
-    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+    # Concurrency Management: Immediate Engagement
+    if chat_id not in _PROCESSING_LOCKS:
+        _PROCESSING_LOCKS[chat_id] = asyncio.Lock()
 
-    msg_len = len(user_message)
-    if msg_len > 50000:
-        logging.warning(
-            f"Long message received ({msg_len} chars) from user {user_id}. "
-            f"Context compression may be applied."
+    lock = _PROCESSING_LOCKS[chat_id]
+
+    if lock.locked():
+        # Nova is busy. Acknowledge immediately to stay engaged.
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="I'm currently processing your previous request. I've noted this new message and will address it immediately after I finish the current task! 🛰️",
         )
+        # We still want to process it, so we wait for the lock
 
-    try:
-        agent = get_agent(chat_id=str(chat_id))
-        response = await agent.arun(user_message, session_id=session_id)
+    async with lock:
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-        if response and response.content:
-            await send_message_with_fallback(
-                context.bot, chat_id, response.content, title="Nova Response"
-            )
-        else:
-            await context.bot.send_message(
-                chat_id=chat_id, text="I have nothing to say."
-            )
+        try:
+            agent = get_agent(chat_id=str(chat_id))
 
-    except Exception as e:
-        error_msg = str(e)
-        
-        context_error = any(phrase in error_msg.lower() for phrase in [
-            'context length',
-            'token limit',
-            'maximum context',
-            'too many tokens',
-            'exceeds limit',
-            '395051',
-            'max_tokens',
-        ])
-        
-        if context_error:
-            logging.error(f"Context length error: {error_msg}")
-            
-            try:
-                agent = get_agent(chat_id=str(chat_id))
-                if hasattr(agent, 'num_history_messages'):
-                    agent.num_history_messages = 2
-                
-                logging.info("Retrying with compressed context...")
-                response = await agent.arun(user_message, session_id=session_id)
-                
-                if response and response.content:
-                    await send_message_with_fallback(
-                        context.bot, chat_id, 
-                        "[Context was compressed due to length limits]\n\n" + response.content, 
-                        title="Nova Response"
-                    )
-                    return
-            except Exception as retry_error:
-                logging.error(f"Retry also failed: {retry_error}")
-                error_msg = str(retry_error)
-        
-        logging.error(f"Error running agent: {error_msg}")
-        
-        if '395051' in error_msg:
-            await context.bot.send_message(
-                chat_id=chat_id, 
-                text="Error: Your request exceeds the maximum context length (395051 tokens). The conversation is too long. Please start a new conversation with /start"
-            )
-        else:
-            await context.bot.send_message(chat_id=chat_id, text=f"Error: {error_msg[:500]}")
+            # Inject a note about current active tasks if any exist
+            from nova.tools.subagent import SUBAGENTS as ACTIVE_SUBAGENTS
+
+            active_subs = [
+                s["name"]
+                for s in ACTIVE_SUBAGENTS.values()
+                if s.get("chat_id") == str(chat_id) and s.get("status") == "running"
+            ]
+            if active_subs:
+                user_message = f"[SYSTEM NOTE: You have active subagents running: {', '.join(active_subs)}]\n{user_message}"
+
+            response = await agent.arun(user_message, session_id=session_id)
+
+            if response and response.content:
+                await send_message_with_fallback(
+                    context.bot, chat_id, response.content, title="Nova Response"
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="I have processed your request, but have no specific update to share yet.",
+                )
+
+        except Exception as e:
+            error_msg = str(e)
+            logging.error(f"Error running agent: {error_msg}")
+
+            # Basic error handling - be helpful but concise
+            if "395051" in error_msg:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="The conversation history is too large. I've cleared some memory to keep going, but if this persists, please use /start.",
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"I encountered a slight hiccup: {error_msg[:200]}... I'm still here and ready to help!",
+                )
 
 
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE):
@@ -314,9 +313,11 @@ async def post_init(application):
     monitor.register_callback(hb_wrapper)
     monitor.start()
     print("Heartbeat Monitor active with Telegram reporting")
-    
+
     transformer = get_prompt_transformer()
-    print(f"Middle-out prompt transformer initialized (max tokens: {transformer.max_tokens})")
+    print(
+        f"Middle-out prompt transformer initialized (max tokens: {transformer.max_tokens})"
+    )
 
 
 if __name__ == "__main__":
@@ -328,7 +329,9 @@ if __name__ == "__main__":
         exit(1)
 
     if not openrouter_key:
-        print("Warning: OPENROUTER_API_KEY not set. Agent commands involving LLM will fail.")
+        print(
+            "Warning: OPENROUTER_API_KEY not set. Agent commands involving LLM will fail."
+        )
 
     application = (
         ApplicationBuilder().token(telegram_token).post_init(post_init).build()
@@ -338,6 +341,7 @@ if __name__ == "__main__":
 
     try:
         import nova.telegram_bot
+
         nova.telegram_bot.telegram_bot_instance = application.bot
     except Exception as e:
         print(f"Error setting global bot instance: {e}")

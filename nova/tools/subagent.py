@@ -77,41 +77,21 @@ def get_telegram_bot():
     return _get_telegram_bot()
 
 
-def _stream_result_lines(result: str, chat_id: Optional[str], name: str):
-    """
-    Stream each line of the result as an individual Telegram message.
-    This sends each line immediately instead of waiting for completion.
-    """
-    if not chat_id or not result:
-        return
-    
-    lines = result.split('\n')
-    
-    # Send each meaningful line as a separate message
-    for line in lines:
-        line = line.strip()
-        if line and len(line) > 2:  # Skip empty lines and very short ones
-            # Schedule sending without awaiting (non-blocking)
-            asyncio.create_task(
-                send_streaming_progress(
-                    chat_id=chat_id,
-                    name=name,
-                    progress=f"Result: {line[:500]}"  # Truncate long lines
-                )
-            )
+# Removed _stream_result_lines to prevent spam.
+# Results are now synthesized by Nova PM.
 
 
 async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     """
     The actual coroutine that runs the subagent.
     Uses SAU (Subagent Automatic Updates) for real-time progress reporting.
-    
+
     REAL-TIME MODE: Each step is sent as an individual message immediately.
     - "Initializing agent..." -> sent immediately
-    - "Executing task..." -> sent immediately  
+    - "Executing task..." -> sent immediately
     - "Processing results..." -> sent immediately
     - Completion -> sent immediately
-    
+
     KEY CHANGE: Each line of thought/action output is sent individually.
     """
     subagent_data = SUBAGENTS.get(subagent_id)
@@ -128,58 +108,39 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     async with StreamingContext(chat_id, name, auto_complete=False) as stream:
         try:
             SUBAGENTS[subagent_id]["status"] = "running"
-            
+
             logging.info(
                 f"Subagent {subagent_id} started running: {instruction[:200]}..."
             )
 
             # REAL-TIME: Each of these is sent IMMEDIATELY to Telegram
             await stream.send("Initializing agent and preparing task execution...")
-            
+
             # Pre-process the instruction - send progress
             await stream.send("Analyzing task requirements...")
-            
+
             # Update task tracker with heartbeat
             task_tracker.update_heartbeat(subagent_id)
-            
+
             # Run the agent asynchronously
             await stream.send("Executing task with AI model...")
             response = await agent.arun(instruction)
 
-            # Process result - stream each line
-            await stream.send("Processing results and preparing output...")
             result = response.content
-            
-            # Update progress in task tracker
-            task_tracker.update_progress(subagent_id, 50)
-            
-            # STREAM EACH LINE OF RESULT INDIVIDUALLY
-            if result and chat_id:
-                await stream.send("Streaming result lines...")
-                result_str = str(result)
-                
-                # Split into lines and send each significant one
-                lines = result_str.split('\n')
-                line_count = 0
-                for line in lines:
-                    clean_line = strip_all_formatting(line.strip())
-                    if clean_line and len(clean_line) > 2:
-                        await stream.send(f"Result line: {clean_line[:500]}")
-                        line_count += 1
-                        # Small delay to avoid rate limiting
-                        if line_count % 10 == 0:
-                            await asyncio.sleep(0.1)
-                
-                await stream.send(f"Completed {line_count} result lines")
-
             SUBAGENTS[subagent_id]["result"] = result
             SUBAGENTS[subagent_id]["status"] = "completed"
 
             logging.info(f"Subagent {subagent_id} completed.")
-            
+
             # Unregister from task tracker on completion
-            task_tracker.unregister_task(subagent_id, {"status": "completed", "result_preview": str(result)[:500] if result else None})
-            
+            task_tracker.unregister_task(
+                subagent_id,
+                {
+                    "status": "completed",
+                    "result_preview": str(result)[:500] if result else None,
+                },
+            )
+
             # StreamingContext will send completion automatically on __aexit__
 
         except Exception as e:
@@ -187,7 +148,9 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             SUBAGENTS[subagent_id]["result"] = str(e)
 
             # Unregister from task tracker on failure
-            task_tracker.unregister_task(subagent_id, {"status": "failed", "error": str(e)})
+            task_tracker.unregister_task(
+                subagent_id, {"status": "failed", "error": str(e)}
+            )
 
             # Send error notification via SAU (sent immediately)
             await stream.send(f"Task failed: {str(e)}", msg_type="error")
@@ -353,7 +316,7 @@ async def create_subagent(
         list_files,
         delete_file,
         create_directory,
-        push_to_github,
+        # NOTE: push_to_github REMOVED - Centralized coordination belongs to Nova PM
         pull_latest_changes,
         send_streaming_start,
         send_streaming_progress,
@@ -376,10 +339,9 @@ async def create_subagent(
 - YOU MUST use the streaming system to report milestones IMMEDIATELY as you progress.
 - Use the `send_streaming_start`, `send_streaming_progress`, and `send_streaming_complete` functions.
 - The header format for all updates is: [{name}]
-- Report at key milestones: initialization, tool execution, results processing, completion.
-- Each step should be sent as an INDIVIDUAL message - "Let me examine...", "Now I will implement...", etc.
-- NEVER wait for completion to send updates - report progress in real-time.
-- If errors occur, use `send_streaming_error` immediately.
+- Report ONLY key milestones: initialization, tool execution, major findings, completion.
+- DO NOT stream every line of output or thought individually.
+- Summarize long outputs before reporting progress.
 - This is NOT optional - it is the MANDATORY default for all subagent reporting.
 - Legacy heartbeat/PM polling is DISABLED for your tasks.
 """
@@ -387,9 +349,12 @@ async def create_subagent(
     # Enhanced instructions with MANDATORY SAU
     enhanced_instructions = [
         f"You are a specialized subagent named '{name}'.",
-        "Your goal is to execute the specific task assigned to you.",
+        "You are part of a team coordinated by Nova, the Project Manager Sentient.",
+        "Your goal is to execute the specific task assigned to you and provide concise findings.",
         "You have access to shell, filesystem, and specialized MCP tools.",
         "Focus on DOING the work rather than delegating.",
+        "You can commit changes using git commands in the shell, but you CANNOT push to remote.",
+        "Pushing is the sole responsibility of Nova PM.",
         "",
         sau_instructions,
         "# CRITICAL: NO MARKDOWN - Telegram renders all markdown as plain text.",
@@ -455,7 +420,9 @@ async def create_subagent(
         description=f"Subagent task: {name}",
         initial_state=initial_state,
     )
-    logging.info(f"Registered task {subagent_id} with task tracker for deployment locking")
+    logging.info(
+        f"Registered task {subagent_id} with task tracker for deployment locking"
+    )
 
     # Heartbeat monitoring DISABLED - SAU real-time is the mandatory default
     logging.info(
@@ -488,7 +455,7 @@ def get_subagent_result(subagent_id: str) -> str:
     Retrieves the result of a subagent.
     If the subagent is still running, it returns the current status.
     The caller should poll this tool until 'completed' or 'failed' is returned.
-    
+
     NOTE: Results are now streamed incrementally via SAU.
     This function returns a minimal status message.
     """

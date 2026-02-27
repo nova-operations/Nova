@@ -23,7 +23,7 @@ __all__ = [
     "DeploymentCoordinator",
     # Models
     "DeploymentType",
-    "QueuePriority", 
+    "QueuePriority",
     "QueueStatus",
     "TaskStatus",
     "DeploymentQueue",

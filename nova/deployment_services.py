@@ -12,7 +12,10 @@ from nova.deployment_coordinator import DeploymentCoordinator
 from nova.task_tracker import TaskTracker
 from nova.queue_manager import QueueManager
 from nova.db.deployment_models import (
-    DeploymentType, QueuePriority, QueueStatus, TaskStatus
+    DeploymentType,
+    QueuePriority,
+    QueueStatus,
+    TaskStatus,
 )
 
 logger = logging.getLogger(__name__)
@@ -23,29 +26,29 @@ class DeploymentService:
     Unified service interface for deployment management.
     Integrates queue, task tracking, and coordination.
     """
-    
-    _instance: Optional['DeploymentService'] = None
-    
+
+    _instance: Optional["DeploymentService"] = None
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
-    
+
     def __init__(self):
         if self._initialized:
             return
-        
+
         self._initialized = True
         self._coordinator = DeploymentCoordinator()
         self._task_tracker = TaskTracker()
         self._queue_manager = QueueManager()
-        
+
         # Default notification handler (can be overridden)
         self._notification_handler: Optional[Callable] = None
-        
+
         logger.info("DeploymentService initialized")
-    
+
     def initialize(
         self,
         deployment_executor: Callable,
@@ -53,38 +56,39 @@ class DeploymentService:
     ):
         """
         Initialize the service with required callbacks.
-        
+
         Args:
             deployment_executor: Function to execute actual deployments
             notification_handler: Function to send notifications to users
         """
         self._coordinator.set_deployment_executor(deployment_executor)
-        
+
         if notification_handler:
             self._notification_handler = notification_handler
             self._coordinator.set_notification_callback(notification_handler)
-        
+
         # Connect task tracker to queue manager
         self._coordinator.queue_manager.set_worker_check_callback(
             self._task_tracker.get_active_count
         )
-        
+
         # Initialize database tables
         from nova.db.init_deployment import init_deployment_db
+
         init_deployment_db()
-        
+
         logger.info("DeploymentService ready")
-    
+
     def start(self):
         """Start the deployment coordinator."""
         self._coordinator.start()
-    
+
     def stop(self):
         """Stop the deployment coordinator."""
         self._coordinator.stop()
-    
+
     # ==================== Task Management ====================
-    
+
     def register_task(
         self,
         task_id: str,
@@ -103,7 +107,7 @@ class DeploymentService:
             description=description,
             initial_state=initial_state,
         )
-    
+
     def complete_task(
         self,
         task_id: str,
@@ -111,23 +115,23 @@ class DeploymentService:
     ) -> bool:
         """Mark a task as completed."""
         return self._task_tracker.unregister_task(task_id, final_state)
-    
+
     def update_task_heartbeat(self, task_id: str) -> bool:
         """Update task heartbeat."""
         return self._task_tracker.update_heartbeat(task_id)
-    
+
     def update_task_progress(self, task_id: str, progress: int) -> bool:
         """Update task progress."""
         return self._task_tracker.update_progress(task_id, progress)
-    
+
     def update_task_state(self, task_id: str, state: Dict) -> bool:
         """Update task state."""
         return self._task_tracker.update_state(task_id, state)
-    
+
     def get_task_state(self, task_id: str) -> Optional[Dict]:
         """Get task state."""
         return self._task_tracker.get_task_state(task_id)
-    
+
     def create_task_checkpoint(
         self,
         task_id: str,
@@ -136,7 +140,7 @@ class DeploymentService:
     ) -> Optional[int]:
         """Create a checkpoint for a task."""
         return self._task_tracker.create_checkpoint(task_id, state, checkpoint_type)
-    
+
     def get_active_tasks(
         self,
         project_id: Optional[str] = None,
@@ -144,13 +148,13 @@ class DeploymentService:
     ) -> List[Dict]:
         """Get all active tasks."""
         return self._task_tracker.get_active_tasks(project_id, subagent_name)
-    
+
     def get_active_task_count(self) -> int:
         """Get count of active tasks."""
         return self._task_tracker.get_active_count()
-    
+
     # ==================== Deployment Queue ====================
-    
+
     def queue_deployment(
         self,
         deployment_type: str,
@@ -161,14 +165,14 @@ class DeploymentService:
     ) -> int:
         """
         Queue a deployment for execution.
-        
+
         Args:
             deployment_type: Type of deployment (deploy, redeploy, restart, etc.)
             target_service: Target service or project name
             requested_by: User who requested the deployment
             reason: Reason for deployment
             priority: Priority level (low, normal, high, critical)
-        
+
         Returns:
             Queue item ID
         """
@@ -178,24 +182,24 @@ class DeploymentService:
                 prio = QueuePriority[priority.upper()]
             except KeyError:
                 logger.warning(f"Invalid priority: {priority}, using default")
-        
+
         return self._coordinator.queue_deployment(
             deployment_type=deployment_type,
             target_service=target_service,
             requested_by=requested_by,
             reason=reason,
         )
-    
+
     def cancel_deployment(self, queue_id: int) -> bool:
         """Cancel a pending deployment."""
         return self._coordinator.cancel_deployment(queue_id)
-    
+
     def get_queue_status(self) -> List[Dict]:
         """Get current deployment queue status."""
         return self._coordinator.get_queue_status()
-    
+
     # ==================== Scheduled Jobs ====================
-    
+
     def register_scheduled_job(
         self,
         job_id: str,
@@ -210,17 +214,17 @@ class DeploymentService:
             cron_expression=cron_expression,
             auto_resume=auto_resume,
         )
-    
+
     def toggle_scheduled_job(self, job_id: str, enabled: bool) -> bool:
         """Enable or disable a scheduled job."""
         return self._coordinator.toggle_scheduled_job(job_id, enabled)
-    
+
     def get_scheduled_jobs(self) -> List[Dict]:
         """Get all scheduled jobs."""
         return self._coordinator.get_scheduled_jobs()
-    
+
     # ==================== Utility ====================
-    
+
     def get_system_status(self) -> Dict[str, Any]:
         """Get overall system status."""
         return {

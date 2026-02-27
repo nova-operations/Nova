@@ -32,7 +32,7 @@ REAL_TIME_MODE = True
 def strip_all_formatting(text: str) -> str:
     """
     Strip ALL formatting (HTML and Markdown) from text for Telegram compatibility.
-    
+
     Removes:
     - HTML tags (<b>, <i>, <code>, <pre>, <a>, etc.)
     - Markdown headers (# ## ###)
@@ -44,82 +44,84 @@ def strip_all_formatting(text: str) -> str:
     - Bullet lists (- * +)
     - Numbered lists (1. 2. 3.)
     - Blockquotes (> text)
-    
+
     Args:
         text: The text with potential formatting
-        
+
     Returns:
         Clean plaintext with no formatting characters
     """
     if not text:
         return text
-    
+
     result = text
-    
+
     # Remove HTML tags (<...>) - aggressive
-    result = re.sub(r'<[^>]+>', '', result)
-    
+    result = re.sub(r"<[^>]+>", "", result)
+
     # Remove code blocks (```...```)
-    result = re.sub(r'```[\s\S]*?```', '', result)
-    
+    result = re.sub(r"```[\s\S]*?```", "", result)
+
     # Remove inline code (`...`)
-    result = re.sub(r'`([^`]+)`', r'\1', result)
-    
+    result = re.sub(r"`([^`]+)`", r"\1", result)
+
     # Remove headers (# ## ###)
-    result = re.sub(r'^#{1,6}\s+', '', result, flags=re.MULTILINE)
-    
+    result = re.sub(r"^#{1,6}\s+", "", result, flags=re.MULTILINE)
+
     # Remove bold (**text** or __text__)
-    result = re.sub(r'\*\*([^*]+)\*\*', r'\1', result)
-    result = re.sub(r'__([^_]+)__', r'\1', result)
-    
+    result = re.sub(r"\*\*([^*]+)\*\*", r"\1", result)
+    result = re.sub(r"__([^_]+)__", r"\1", result)
+
     # Remove italic (*text* or _text_)
-    result = re.sub(r'(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)', r'\1', result)
-    result = re.sub(r'(?<!_)_(?!_)([^_]+)(?<!_)_(?!_)', r'\1', result)
-    
+    result = re.sub(r"(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)", r"\1", result)
+    result = re.sub(r"(?<!_)_(?!_)([^_]+)(?<!_)_(?!_)", r"\1", result)
+
     # Remove links [text](url) - keep text only
-    result = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', result)
-    
+    result = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", result)
+
     # Remove bullet list markers at start of lines
-    result = re.sub(r'^[\-\*\+]\s+', '', result, flags=re.MULTILINE)
-    
+    result = re.sub(r"^[\-\*\+]\s+", "", result, flags=re.MULTILINE)
+
     # Remove numbered lists at start of lines
-    result = re.sub(r'^\d+\.\s+', '', result, flags=re.MULTILINE)
-    
+    result = re.sub(r"^\d+\.\s+", "", result, flags=re.MULTILINE)
+
     # Remove blockquotes
-    result = re.sub(r'^>\s+', '', result, flags=re.MULTILINE)
-    
+    result = re.sub(r"^>\s+", "", result, flags=re.MULTILINE)
+
     # Remove horizontal rules
-    result = re.sub(r'^[\-\*_]{3,}\s*$', '', result, flags=re.MULTILINE)
-    
+    result = re.sub(r"^[\-\*_]{3,}\s*$", "", result, flags=re.MULTILINE)
+
     # Clean up excessive whitespace
-    result = re.sub(r'\n{3,}', '\n\n', result)
+    result = re.sub(r"\n{3,}", "\n\n", result)
     result = result.strip()
-    
+
     return result
 
 
 def _get_chat_id(chat_id: Optional[str], subagent_name: str = "") -> str:
     """
     Safely get the chat_id, ensuring it's always a valid numeric string.
-    
+
     This prevents the bug where subagent_name gets passed as chat_id,
     causing "invalid literal for int()" errors.
-    
+
     Args:
         chat_id: The provided chat_id (may be None or invalid)
         subagent_name: Name of subagent for logging/debugging
-        
+
     Returns:
         Valid numeric chat_id string
     """
     # If chat_id is None or empty, use default
     if chat_id is None or chat_id == "":
-        logger.debug(f"No chat_id provided for {subagent_name}, using default: {DEFAULT_CHAT_ID}")
+        logger.debug(
+            f"No chat_id provided for {subagent_name}, using default: {DEFAULT_CHAT_ID}"
+        )
         return DEFAULT_CHAT_ID
-    
+
     # Check if chat_id is a valid numeric string
     chat_id_str = str(chat_id).strip()
-    
+
     # Validate it's actually numeric - if not, log warning and use default
     if not chat_id_str.isdigit():
         logger.warning(
@@ -127,25 +129,25 @@ def _get_chat_id(chat_id: Optional[str], subagent_name: str = "") -> str:
             f"appears to be subagent name. Using default: {DEFAULT_CHAT_ID}"
         )
         return DEFAULT_CHAT_ID
-    
+
     return chat_id_str
 
 
 def _get_telegram_bot():
     """
     Get the Telegram bot instance with comprehensive fallback handling.
-    
+
     Tries multiple sources in order:
     1. Import from nova.telegram_bot module (works when bot is running as main)
     2. Search sys.modules for any loaded telegram_bot with an instance
     3. Create a new bot instance from TELEGRAM_BOT_TOKEN (last resort)
     """
     global _cached_bot
-    
+
     # Return cached bot if we already have one
     if _cached_bot is not None:
         return _cached_bot
-    
+
     # First, try to get from telegram_bot module
     try:
         import nova.telegram_bot as tb_module
@@ -163,10 +165,11 @@ def _get_telegram_bot():
     # Try alternate import path for when running as subagent
     try:
         import sys
+
         # Check if telegram_bot is in sys.modules
         for mod_name, mod in sys.modules.items():
-            if 'telegram_bot' in mod_name and mod is not None:
-                if hasattr(mod, 'telegram_bot_instance'):
+            if "telegram_bot" in mod_name and mod is not None:
+                if hasattr(mod, "telegram_bot_instance"):
                     bot = mod.telegram_bot_instance
                     if bot is not None:
                         logger.debug(f"Found bot in sys.modules: {mod_name}")
@@ -179,7 +182,7 @@ def _get_telegram_bot():
     try:
         from telegram import Bot
         from telegram.error import TelegramError
-        
+
         token = os.getenv("TELEGRAM_BOT_TOKEN")
         if token:
             # Create a new bot instance (expensive but works as fallback)
@@ -200,7 +203,7 @@ def _get_telegram_bot():
 
 async def _ensure_bot_initialized(bot):
     """Ensure the bot is initialized before use."""
-    if bot and hasattr(bot, 'initialize') and not hasattr(bot, '_initialized'):
+    if bot and hasattr(bot, "initialize") and not hasattr(bot, "_initialized"):
         try:
             await bot.initialize()
             bot._initialized = True
@@ -217,10 +220,10 @@ async def send_live_update(
 ) -> bool:
     """
     Send a live streaming update to the user via Telegram.
-    
+
     NOTE: This function now ALWAYS operates in PLAINTEXT-ONLY mode.
     All HTML and Markdown tags are stripped before sending.
-    
+
     CRITICAL: This sends IMMEDIATELY - no batching, no waiting.
 
     Args:
@@ -267,9 +270,9 @@ async def send_live_update(
             int(chat_id),
             formatted_message,
             title=f"Live Update: {subagent_name}",
-            parse_mode=None  # Force plaintext
+            parse_mode=None,  # Force plaintext
         )
-        
+
         # Small yield to allow other tasks to run
         await asyncio.sleep(0)
         return True
@@ -295,14 +298,14 @@ async def send_streaming_progress(
 ) -> str:
     """
     Send a PROGRESS update in REAL-TIME mode.
-    
+
     Each progress update is sent IMMEDIATELY as it happens.
     No batching - user sees each thought as they occur.
     """
     if not REAL_TIME_MODE:
         # Fallback to batched if ever disabled
         return "Batched"
-    
+
     # Send immediately - real-time mode (ZERO LATENCY)
     success = await send_live_update(
         message=progress,
@@ -322,7 +325,7 @@ async def send_streaming_complete(
         # Strip all formatting from summary too
         clean_summary = strip_all_formatting(summary)
         msg = f"Task completed! {clean_summary}"
-    
+
     success = await send_live_update(
         message=msg,
         chat_id=chat_id,
@@ -348,12 +351,12 @@ async def send_streaming_error(chat_id: Optional[str], name: str, error: str) ->
 class StreamingContext:
     """
     Context manager for sending streaming updates during a subagent task.
-    
+
     REAL-TIME MODE ENABLED:
     - Sends START message on entry
     - Sends each progress message IMMEDIATELY (no batching)
     - Sends COMPLETE message on exit
-    
+
     Usage:
         async with StreamingContext(chat_id, subagent_name) as stream:
             await stream.send("Processing step 1...")  # Sent immediately
@@ -395,16 +398,16 @@ class StreamingContext:
     async def send(self, message: str, msg_type: str = "update"):
         """
         Send a progress message in REAL-TIME.
-        
+
         Each message is sent IMMEDIATELY to Telegram.
         No batching - user sees thoughts as they happen.
         """
         # Clean message
         clean_msg = strip_all_formatting(message)
-        
+
         # Store for logging/debugging
         self._progress_messages.append(clean_msg)
-        
+
         # Send IMMEDIATELY in real-time mode (ZERO LATENCY)
         if REAL_TIME_MODE:
             await send_live_update(
@@ -413,11 +416,15 @@ class StreamingContext:
                 subagent_name=self.subagent_name,
                 message_type="progress",
             )
-            logger.debug(f"SAU real-time progress for {self.subagent_name}: {clean_msg[:50]}...")
+            logger.debug(
+                f"SAU real-time progress for {self.subagent_name}: {clean_msg[:50]}..."
+            )
         else:
             # Fallback to batching if ever disabled
-            logger.debug(f"SAU batched progress for {self.subagent_name}: {clean_msg[:50]}...")
-        
+            logger.debug(
+                f"SAU batched progress for {self.subagent_name}: {clean_msg[:50]}..."
+            )
+
         return True
 
 

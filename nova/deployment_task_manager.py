@@ -26,40 +26,40 @@ logger = logging.getLogger(__name__)
 class DeploymentTaskManager:
     """
     Unified manager for deployment queuing and task persistence.
-    
+
     This class provides a single interface for:
     - Starting up and recovering from previous state
     - Registering and tracking subagent tasks
     - Managing deployment queue with concurrency safety
     - Checking if deployments can proceed
     """
-    
-    _instance: Optional['DeploymentTaskManager'] = None
-    
+
+    _instance: Optional["DeploymentTaskManager"] = None
+
     def __new__(cls):
         """Singleton pattern for consistent state."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
-    
+
     def __init__(self):
         if self._initialized:
             return
-            
+
         self._initialized = True
         self._session_factory = get_session_factory()
-        
+
         # Core components
         self.queue_manager = QueueManager()
         self.task_tracker = TaskTracker()
         self.coordinator = DeploymentCoordinator()
-        
+
         # Connect components
         self.queue_manager.set_worker_check_callback(self.task_tracker.get_active_count)
-        
+
         logger.info("DeploymentTaskManager initialized")
-    
+
     def initialize_on_startup(self, run_recovery: bool = True) -> Dict[str, Any]:
         """
         Initialize the system on startup.
@@ -70,7 +70,7 @@ class DeploymentTaskManager:
             "recovery_performed": False,
             "recovery_summary": None,
         }
-        
+
         if run_recovery:
             try:
                 recovery = StartupRecovery()
@@ -78,7 +78,7 @@ class DeploymentTaskManager:
                 summary = recovery.recover_interrupted_tasks()
                 # Get report separately
                 report = recovery.get_recovery_report()
-                
+
                 result["recovery_performed"] = True
                 result["recovery_summary"] = summary
                 result["recovery_report"] = report
@@ -86,9 +86,9 @@ class DeploymentTaskManager:
             except Exception as e:
                 logger.error(f"Startup recovery failed: {e}")
                 result["recovery_error"] = str(e)
-        
+
         return result
-    
+
     def register_subagent_task(
         self,
         task_id: str,
@@ -108,13 +108,13 @@ class DeploymentTaskManager:
             project_id=project_id,
             description=description,
         )
-    
+
     def unregister_subagent_task(self, task_id: str) -> bool:
         """Unregister a completed task."""
         return self.task_tracker.unregister_task(task_id)
-    
+
     def get_active_tasks(
-        self, 
+        self,
         project_id: Optional[str] = None,
         subagent_name: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
@@ -123,11 +123,11 @@ class DeploymentTaskManager:
             project_id=project_id,
             subagent_name=subagent_name,
         )
-    
+
     def get_task_count(self) -> int:
         """Get count of active tasks."""
         return self.task_tracker.get_active_count()
-    
+
     def can_deploy(self, check_project: Optional[str] = None) -> tuple[bool, str]:
         """
         Check if a deployment can proceed.
@@ -135,7 +135,7 @@ class DeploymentTaskManager:
         """
         # Check if there are active tasks
         active_count = self.get_task_count()
-        
+
         if active_count > 0:
             # Check if deployment_pending flag is set on any task
             # (this would be set during critical sections)
@@ -143,12 +143,15 @@ class DeploymentTaskManager:
             for task in tasks:
                 state = self.task_tracker.get_task_state(task["task_id"])
                 if state and state.get("deployment_pending"):
-                    return False, f"Task {task['task_id']} has deployment_pending flag set"
-            
+                    return (
+                        False,
+                        f"Task {task['task_id']} has deployment_pending flag set",
+                    )
+
             return False, f"{active_count} task(s) still running"
-        
+
         return True, "No active tasks - deployment can proceed"
-    
+
     def add_to_deployment_queue(
         self,
         deployment_type: str,
@@ -161,19 +164,19 @@ class DeploymentTaskManager:
         Add a deployment to the queue.
         """
         from nova.db.deployment_models import DeploymentType, QueuePriority
-        
+
         try:
             dep_type = DeploymentType(deployment_type)
         except ValueError:
             raise ValueError(f"Invalid deployment type: {deployment_type}")
-        
+
         prio = None
         if priority:
             try:
                 prio = QueuePriority[priority.upper()]
             except KeyError:
                 pass
-        
+
         return self.queue_manager.add_to_queue(
             deployment_type=dep_type,
             target_service=target_service,
@@ -181,14 +184,14 @@ class DeploymentTaskManager:
             reason=reason,
             priority=prio,
         )
-    
+
     def get_queue_status(self) -> List[Dict[str, Any]]:
         """Get current queue status."""
         return self.queue_manager.get_queue_status()
-    
+
     def create_task_checkpoint(
-        self, 
-        task_id: str, 
+        self,
+        task_id: str,
         state: Dict[str, Any],
         checkpoint_type: str = "manual",
     ) -> Optional[int]:
@@ -198,16 +201,16 @@ class DeploymentTaskManager:
             state=state,
             checkpoint_type=checkpoint_type,
         )
-    
+
     def get_task_checkpoint(self, task_id: str) -> Optional[Dict[str, Any]]:
         """Get latest checkpoint for a task."""
         return self.task_tracker.get_latest_checkpoint(task_id)
-    
+
     def start_coordinator(self):
         """Start the deployment coordinator background threads."""
         self.coordinator.start()
         logger.info("Deployment coordinator started")
-    
+
     def stop_coordinator(self):
         """Stop the deployment coordinator."""
         self.coordinator.stop()

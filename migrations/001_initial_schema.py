@@ -40,16 +40,16 @@ def run_migrations():
 
     # 2. General Table Creation - ensure all models are created
     Base.metadata.create_all(engine)
-    
+
     # Verify key tables exist
     required_tables = [
         "deployment_queue",
-        "active_tasks", 
+        "active_tasks",
         "task_checkpoints",
         "scheduled_jobs",
         "notification_log",
     ]
-    
+
     for table in required_tables:
         if table in inspector.get_table_names():
             print(f"Table {table} is ready")
@@ -76,7 +76,7 @@ def run_migrations():
     # (for tracking when deployment should wait for task)
     if "active_tasks" in tables:
         columns = [c["name"] for c in inspector.get_columns("active_tasks")]
-        
+
         # Check if current_state can store JSON (deployment_pending flag)
         # Since we store it in current_state JSON, no migration needed
         print("Active tasks table ready - using JSON state for deployment flags")
@@ -87,28 +87,32 @@ def run_migrations():
             # Index on active_tasks for project_id lookups
             if "active_tasks" in tables:
                 try:
-                    conn.execute(text(
-                        "CREATE INDEX IF NOT EXISTS idx_active_tasks_project_id "
-                        "ON active_tasks(project_id)"
-                    ))
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_active_tasks_project_id "
+                            "ON active_tasks(project_id)"
+                        )
+                    )
                 except Exception:
                     pass  # Index might already exist
-            
-            # Index on task_checkpoints for task_id lookups  
+
+            # Index on task_checkpoints for task_id lookups
             if "task_checkpoints" in tables:
                 try:
-                    conn.execute(text(
-                        "CREATE INDEX IF NOT EXISTS idx_task_checkpoints_task_id "
-                        "ON task_checkpoints(task_id)"
-                    ))
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_task_checkpoints_task_id "
+                            "ON task_checkpoints(task_id)"
+                        )
+                    )
                 except Exception:
                     pass
-                    
+
     except Exception as e:
         print(f"Index creation note: {e}")
 
     print("Database is up to date!")
-    
+
     return True
 
 

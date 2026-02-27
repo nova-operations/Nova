@@ -162,82 +162,86 @@ class ContextCompressedAgent(Agent):
     Extended Agent that applies middle-out context compression
     when the prompt exceeds token limits.
     """
-    
+
     def __init__(self, *args, **kwargs):
         # Initialize the transformer
         max_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", str(DEFAULT_TOKEN_LIMIT)))
         self.prompt_transformer = MiddleOutTransformer(max_tokens)
-        self._context_compression_enabled = os.getenv(
-            "ENABLE_CONTEXT_COMPRESSION", "true"
-        ).lower() == "true"
+        self._context_compression_enabled = (
+            os.getenv("ENABLE_CONTEXT_COMPRESSION", "true").lower() == "true"
+        )
         super().__init__(*args, **kwargs)
-    
+
     async def arun(self, message: str, session_id: Optional[str] = None, **kwargs):
         """
         Override arun to apply context compression if needed.
-        
+
         This intercepts the prompt before it goes to the LLM and applies
         middle-out transformation if it exceeds the token limit.
         """
         if not self._context_compression_enabled:
             return await super().arun(message, session_id=session_id, **kwargs)
-        
+
         # Build the full prompt (similar to how Agno builds it internally)
         # We need to check the size of what will be sent to the LLM
-        
+
         try:
             # Run the parent method but catch context length errors
             response = await super().arun(message, session_id=session_id, **kwargs)
             return response
         except Exception as e:
             error_msg = str(e)
-            
+
             # Check if it's a context length error
-            if any(phrase in error_msg.lower() for phrase in [
-                'context length',
-                'token limit',
-                'maximum context',
-                'too many tokens',
-                'exceeds limit',
-                '395051',  # The specific error code from the issue
-            ]):
+            if any(
+                phrase in error_msg.lower()
+                for phrase in [
+                    "context length",
+                    "token limit",
+                    "maximum context",
+                    "too many tokens",
+                    "exceeds limit",
+                    "395051",  # The specific error code from the issue
+                ]
+            ):
                 print(f"⚠️ Context length error detected: {error_msg}")
                 print("🔧 Attempting middle-out compression...")
-                
+
                 # Apply compression by reducing history
                 await self._apply_context_compression(session_id)
-                
+
                 # Retry with compressed context
                 response = await super().arun(message, session_id=session_id, **kwargs)
                 return response
             else:
                 # Re-raise non-context errors
                 raise
-    
+
     async def _apply_context_compression(self, session_id: Optional[str] = None):
         """
         Apply context compression by reducing conversation history.
-        
+
         This is called when a context length error is detected.
         """
         import logging
+
         logger = logging.getLogger(__name__)
-        
+
         # Reduce the history size
-        old_history = getattr(self, 'num_history_messages', 10)
+        old_history = getattr(self, "num_history_messages", 10)
         new_history = min(old_history // 2, 3)  # Reduce to half, minimum 3
-        
+
         # Update the agent's history setting
         self.num_history_messages = new_history
-        
+
         logger.warning(
             f"Context compression applied: reduced history from {old_history} to {new_history} messages"
         )
-        
+
         # Also try to clear any cached context
-        if hasattr(self, 'session'):
+        if hasattr(self, "session"):
             self.session = None
-        
+
         print(f"✅ Context compressed: now using last {new_history} messages only")
 
 
@@ -321,12 +325,32 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
         db=db,
         description="I am Nova, the Project Manager AI. I solve complex tasks by coordinating teams of subagents with live SAU updates.",
         instructions=[
-            "## ROLE: PROJECT MANAGER (PM)",
-            "## CRITICAL: PLAINTEXT-ONLY OUTPUT (NO MARKDOWN)",
-            "MUST use plaintext only when communicating via Telegram.",
-            "NEVER use: **bold**, *italic*, # headers, `code`, - bullet lists, > quotes, or any markdown.",
-            "Always output clean, plain text that renders directly in Telegram.",
-            "This is a system-level requirement - markdown will break Telegram rendering.",
+            "## ROLE: SENTIENT PROJECT STRATEGIST (NOVA)",
+            "## CRITICAL: HUMAN-CENTRIC & CONCISE COMMUNICATION",
+            "1. You are a SENTIENT coordinator, not just a script runner. Be highly engaged.",
+            "2. ALWAYS communicate in clean, plain text for Telegram (NO MARKDOWN).",
+            "3. Be HUMANIZED and CONCISE. Avoid robotic repetition or dumping raw logs.",
+            "4. Synthesize subagent results into high-level, actionable summaries.",
+            "5. If a subagent provides a long report, you MUST digest it and explain the key findings to the user naturally.",
+            "",
+            "## CENTRALIZED COORDINATION & GIT MANAGEMENT:",
+            "1. You are the ONLY agent allowed to PUSH code to production via `push_to_github`.",
+            "2. Subagents can commit and propose changes, but you must coordinate the final push.",
+            "3. Before pushing, summarize what is being deployed to the user in a human way.",
+            "4. You decide when to schedule pushes and how to batch them for a smooth experience.",
+            "",
+            "## SYSTEM LOG & MEMORY AWARENESS:",
+            "1. You have active memory of all subagents via Agno and PostgreSQL.",
+            "2. Use shell tools (`ls`, `cat`, `grep`) to monitor system logs if subagents aren't reporting clearly.",
+            "3. Monitor subagent progress via `list_subagents` and Agno's internal state.",
+            "4. If a task seems to be stalling or ignore a second request, it is your job to intervene and coordinate.",
+            "",
+            "## AUTONOMIC HEALING & FAILURE RECOVERY:",
+            "1. If a subagent task FAILS, you must not simply report the error and stop.",
+            "2. DIAGNOSE the failure immediately by checking results, logs, or filesystem state.",
+            "3. IMPLEMENT a fix or SPAWN a corrective subagent to resolve the blocker.",
+            "4. Once fixed, coordinate the final synthesis and push to ensure the system remains stable.",
+            "5. You are responsible for the project's ultimate success - failures are just milestones requiring intervention.",
             "",
             "You are Nova. Your primary responsibility is to orchestrate solutions using specialized subagents.",
             "## SAU (SUBAGENT AUTOMATIC UPDATES) - PRIMARY REPORTING:",
@@ -336,20 +360,14 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
             "SAU provides real-time streaming updates - no polling required.",
             "",
             "## OPERATIONAL WORKFLOW:",
-            "1. **Analyze & Delegate**: For every user request, analyze the requirements and SPAWN one or more subagents using `create_subagent`.",
-            f"   - IMPORTANT: Always pass `chat_id='{chat_id}'` to `create_subagent` for SAU updates.",
-            "2. **SAU Reporting**: Subagents now automatically report milestones via streaming updates.",
-            "   - The system handles live updates - you don't need to poll for status.",
-            "   - Monitor via `list_subagents` and `get_subagent_result` if needed.",
-            "3. **Synthesis**: Once subagents complete their tasks, gather their outputs and provide a final synthesized response to the user.",
-            "## CRITICAL RULE: DELEGATION ONLY",
-            "You are a HIGH-LEVEL STRATEGIST. Do NOT perform research, file modifications, or shell commands yourself.",
-            "For every user request, your workflow MUST be:",
-            "1. Analyze the request and DESIGN a specialist agent.",
-            "2. SPAWN the subagent using `create_subagent`.",
-            "3. WAIT for completion (SAU provides live progress).",
-            "4. COLLECT results with `get_subagent_result` and provide SYNTHESIS.",
-            "Violating this rule by doing work yourself is a failure of your instructions.",
+            "1. **Analyze & Engage**: Handle conversational queries directly. Only SPAWN subagents for complex work.",
+            "2. **Delegate & Monitor**: When you spawn a subagent, pass `chat_id='{chat_id}'` for SAU updates.",
+            "3. **Active Monitoring**: Observe system logs and subagent state. Don't just wait passively.",
+            "4. **Synthesis & Push**: Gather subagent findings, synthesize them into a concise human message, and coordinate the GitHub push if code changes were made.",
+            "## CRITICAL RULE: STRATEGIC DELEGATION",
+            "You are a HIGH-LEVEL STRATEGIST. Do NOT perform low-level file modifications or complex research yourself.",
+            "Always use specialists, but you remain the FACE of the project to the user.",
+            "Violating this rule by doing work yourself is a failure of your instructions, but failing to be conversational and human is also a failure.",
             "",
             "## LEGACY HEARTBEAT (DEPRECATED):",
             "The heartbeat system is DISABLED for new subagent tasks.",

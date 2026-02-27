@@ -1,6 +1,6 @@
 # MCP Ecosystem & Agno Framework Research Report
 
-**Research Date:** February 25, 2026  
+**Research Date:** February 25, 2026
 **Researcher:** Research-Analyst-V707
 
 ---
@@ -282,7 +282,7 @@ agent = Agent(
    from agno.db.postgres import PostgresDb
 
    db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
-   
+
    agent = Agent(
        db=db,
        model=OpenAIResponses(id="gpt-4o"),
@@ -294,13 +294,13 @@ agent = Agent(
 3. **Enable Knowledge/RAG** (optional but recommended)
    ```python
    from agno.knowledge.pdf import PDFKnowledgeBase
-   
+
    knowledge_base = PDFKnowledgeBase(
        path="docs/",
        db=db  # Uses same PostgreSQL
    )
    knowledge_base.load()
-   
+
    agent = Agent(
        db=db,
        knowledge_base=knowledge_base,

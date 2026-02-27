@@ -14,7 +14,7 @@ from nova.db.deployment_models import (
 
 __all__ = [
     "DeploymentType",
-    "QueuePriority", 
+    "QueuePriority",
     "QueueStatus",
     "TaskStatus",
     "DeploymentQueue",

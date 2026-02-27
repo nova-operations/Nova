@@ -12,33 +12,36 @@ def check_active_tasks() -> Tuple[bool, str]:
     try:
         from nova.db.engine import get_session_factory
         from nova.db.deployment_models import ActiveTask, TaskStatus
-        
+
         session_factory = get_session_factory()
         session = session_factory()
-        
+
         try:
-            active_count = session.query(ActiveTask).filter(
-                ActiveTask.status == TaskStatus.RUNNING
-            ).count()
-            
+            active_count = (
+                session.query(ActiveTask)
+                .filter(ActiveTask.status == TaskStatus.RUNNING)
+                .count()
+            )
+
             if active_count > 0:
                 # Get details of active tasks
-                active_tasks = session.query(ActiveTask).filter(
-                    ActiveTask.status == TaskStatus.RUNNING
-                ).all()
-                
-                task_details = ", ".join([
-                    f"{t.subagent_name}({t.task_id[:8]}...)" 
-                    for t in active_tasks[:3]
-                ])
-                
+                active_tasks = (
+                    session.query(ActiveTask)
+                    .filter(ActiveTask.status == TaskStatus.RUNNING)
+                    .all()
+                )
+
+                task_details = ", ".join(
+                    [f"{t.subagent_name}({t.task_id[:8]}...)" for t in active_tasks[:3]]
+                )
+
                 return True, f"{active_count} active task(s) running: {task_details}"
-            
+
             return False, "No active tasks"
-            
+
         finally:
             session.close()
-            
+
     except Exception as e:
         logging.warning(f"Could not check active tasks: {e}")
         return False, f"Could not verify task status: {e}"
@@ -53,37 +56,37 @@ def set_deployment_pending_flag(task_id: str, pending: bool = True) -> bool:
         from nova.db.engine import get_session_factory
         from nova.db.deployment_models import ActiveTask
         import json
-        
+
         session_factory = get_session_factory()
         session = session_factory()
-        
+
         try:
-            task = session.query(ActiveTask).filter(
-                ActiveTask.task_id == task_id
-            ).first()
-            
+            task = (
+                session.query(ActiveTask).filter(ActiveTask.task_id == task_id).first()
+            )
+
             if task:
                 state = json.loads(task.current_state) if task.current_state else {}
                 state["deployment_pending"] = pending
                 task.current_state = json.dumps(state)
                 session.commit()
                 return True
-            
+
             return False
-            
+
         finally:
             session.close()
-            
+
     except Exception as e:
         logging.warning(f"Could not set deployment flag: {e}")
         return False
 
 
 def push_to_github(
-    commit_message: str, 
-    branch: str = "main", 
+    commit_message: str,
+    branch: str = "main",
     files: Optional[List[str]] = None,
-    force: bool = False
+    force: bool = False,
 ) -> str:
     """
     Commits and pushes changes to the GitHub repository.
@@ -91,7 +94,7 @@ def push_to_github(
 
     Before pushing, checks for active tasks. If tasks are running,
     sets deployment_pending flag and notifies the user.
-    
+
     Use force=True to skip the active task check (for emergency deployments).
 
     Args:
@@ -106,34 +109,38 @@ def push_to_github(
     # Check for active tasks unless force is True
     if not force:
         has_active, task_message = check_active_tasks()
-        
+
         if has_active:
             # Set deployment_pending flag on all active tasks
             try:
                 from nova.db.engine import get_session_factory
                 from nova.db.deployment_models import ActiveTask, TaskStatus
-                
+
                 session_factory = get_session_factory()
                 session = session_factory()
-                
+
                 try:
-                    active_tasks = session.query(ActiveTask).filter(
-                        ActiveTask.status == TaskStatus.RUNNING
-                    ).all()
-                    
+                    active_tasks = (
+                        session.query(ActiveTask)
+                        .filter(ActiveTask.status == TaskStatus.RUNNING)
+                        .all()
+                    )
+
                     for task in active_tasks:
                         set_deployment_pending_flag(task.task_id, True)
-                        
+
                 finally:
                     session.close()
             except Exception as e:
                 logging.warning(f"Could not set deployment flags: {e}")
-            
+
             # Return message indicating tasks are running
-            return (f"Cannot push: {task_message}. "
-                    f"Either wait for tasks to complete or use force=True to override. "
-                    f"Deployment will be blocked until all tasks finish.")
-    
+            return (
+                f"Cannot push: {task_message}. "
+                f"Either wait for tasks to complete or use force=True to override. "
+                f"Deployment will be blocked until all tasks finish."
+            )
+
     # Prioritize the persistent repo path
     repo_dir = "/app/data/nova_repo"
     if not os.path.exists(repo_dir):
@@ -189,30 +196,33 @@ def push_to_github(
                 try:
                     from nova.db.engine import get_session_factory
                     from nova.db.deployment_models import ActiveTask, TaskStatus
-                    
+
                     session_factory = get_session_factory()
                     session = session_factory()
-                    
+
                     try:
-                        active_tasks = session.query(ActiveTask).filter(
-                            ActiveTask.status == TaskStatus.RUNNING
-                        ).all()
-                        
+                        active_tasks = (
+                            session.query(ActiveTask)
+                            .filter(ActiveTask.status == TaskStatus.RUNNING)
+                            .all()
+                        )
+
                         for task in active_tasks:
                             set_deployment_pending_flag(task.task_id, False)
-                            
+
                     finally:
                         session.close()
                 except Exception as e:
                     logging.warning(f"Could not clear deployment flags: {e}")
-            
+
             # Send Telegram notification for deployment initiation
             try:
                 from nova.tools.telegram_notifier import notify_deployment_initiated
+
                 notify_deployment_initiated(commit_message)
             except Exception as notif_err:
                 logging.warning(f"Failed to send deployment notification: {notif_err}")
-            
+
             return f"Successfully pushed changes to {branch}. Deployment should start shortly."
         else:
             return f"Error pushing to GitHub: {result.stderr}"

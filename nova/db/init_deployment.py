@@ -15,23 +15,23 @@ logger = logging.getLogger(__name__)
 def init_deployment_db():
     """Initialize all deployment-related database tables."""
     engine = get_db_engine()
-    
+
     logger.info("Creating deployment database tables...")
-    
+
     # Create all tables
     Base.metadata.create_all(engine)
-    
+
     logger.info("Deployment database tables created successfully")
 
 
 def drop_deployment_db():
     """Drop all deployment-related database tables."""
     engine = get_db_engine()
-    
+
     logger.info("Dropping deployment database tables...")
-    
+
     Base.metadata.drop_all(engine)
-    
+
     logger.info("Deployment database tables dropped")
 
 

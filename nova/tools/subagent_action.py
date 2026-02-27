@@ -6,7 +6,11 @@ for the heartbeat monitoring system.
 """
 
 from typing import Optional
-from nova.tools.subagent import SUBAGENTS, update_subagent_action, get_current_subagent_context
+from nova.tools.subagent import (
+    SUBAGENTS,
+    update_subagent_action,
+    get_current_subagent_context,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -34,10 +38,10 @@ def report_subagent_action(
     # Auto-detect subagent_id if not provided
     if subagent_id is None:
         subagent_id = get_current_subagent_context()
-    
+
     if subagent_id is None:
         return "Error: Could not determine subagent ID. Please provide it explicitly."
-    
+
     if subagent_id not in SUBAGENTS:
         return f"Error: Subagent {subagent_id} not found."
 

@@ -13,9 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _stream_shell_output(
-    command: str,
-    chat_id: Optional[str] = None,
-    subagent_name: str = "Shell"
+    command: str, chat_id: Optional[str] = None, subagent_name: str = "Shell"
 ) -> str:
     """
     Execute a shell command and stream each line of output as a separate Telegram message.
@@ -23,7 +21,7 @@ async def _stream_shell_output(
     """
     if chat_id is None:
         chat_id = os.getenv("DEFAULT_TELEGRAM_CHAT_ID")
-    
+
     try:
         # Run command in a restricted environment
         process = subprocess.Popen(
@@ -34,26 +32,24 @@ async def _stream_shell_output(
             text=True,
             bufsize=1,  # Line buffered
         )
-        
+
         stdout_lines = []
         stderr_lines = []
-        
+
         # Read stdout line by line and stream each
-        for line in iter(process.stdout.readline, ''):
+        for line in iter(process.stdout.readline, ""):
             if line:
                 line = line.rstrip()
                 stdout_lines.append(line)
                 # Send each line immediately via SAU
                 if chat_id and line.strip():
                     await send_streaming_progress(
-                        chat_id=chat_id,
-                        name=subagent_name,
-                        progress=f"[stdout] {line}"
+                        chat_id=chat_id, name=subagent_name, progress=f"[stdout] {line}"
                     )
-        
+
         process.stdout.close()
         process.wait()
-        
+
         # Read any remaining stderr
         stderr_output = process.stderr.read()
         if stderr_output:
@@ -65,40 +61,40 @@ async def _stream_shell_output(
                         await send_streaming_progress(
                             chat_id=chat_id,
                             name=subagent_name,
-                            progress=f"[stderr] {line}"
+                            progress=f"[stderr] {line}",
                         )
-        
+
         process.stderr.close()
-        
+
         returncode = process.returncode
-        
+
         if returncode == 0:
             result = "\n".join(stdout_lines)
             return result if result else "Command completed successfully (no output)."
         else:
-            error_msg = "\n".join(stderr_lines) if stderr_lines else f"Error (code {returncode})"
+            error_msg = (
+                "\n".join(stderr_lines)
+                if stderr_lines
+                else f"Error (code {returncode})"
+            )
             return f"Error (code {returncode}): {error_msg}"
-            
+
     except Exception as e:
         error_msg = f"Error executing command: {e}"
         if chat_id:
             await send_streaming_progress(
-                chat_id=chat_id,
-                name=subagent_name,
-                progress=error_msg
+                chat_id=chat_id, name=subagent_name, progress=error_msg
             )
         return error_msg
 
 
 def execute_shell_command(
-    command: str,
-    chat_id: Optional[str] = None,
-    subagent_name: str = "Shell"
+    command: str, chat_id: Optional[str] = None, subagent_name: str = "Shell"
 ) -> str:
     """
     Executes a shell command and returns the output.
     For backwards compatibility, returns the full output.
-    
+
     For streaming mode (new behavior), the command output is sent line-by-line
     to Telegram via SAU if chat_id is provided.
     """
@@ -108,10 +104,10 @@ def execute_shell_command(
         # We have an event loop - try async execution
         # Create a task and run it synchronously (blocking wait)
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(
-                asyncio.run,
-                _stream_shell_output(command, chat_id, subagent_name)
+                asyncio.run, _stream_shell_output(command, chat_id, subagent_name)
             )
             return future.result()
     except RuntimeError:

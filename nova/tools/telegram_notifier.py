@@ -32,7 +32,7 @@ def get_notifications_chat_id() -> str:
 def send_telegram_message(chat_id: str, message: str) -> bool:
     """
     Send a message via Telegram bot using direct API call.
-    
+
     Returns:
         True if successful, False otherwise.
     """
@@ -40,19 +40,16 @@ def send_telegram_message(chat_id: str, message: str) -> bool:
     if not token:
         logger.warning("Cannot send notification - no bot token")
         return False
-    
+
     if not chat_id:
         logger.warning("Cannot send notification - no chat_id")
         return False
-    
+
     import requests
-    
+
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": message
-    }
-    
+    payload = {"chat_id": chat_id, "text": message}
+
     try:
         response = requests.post(url, json=payload, timeout=10)
         if response.status_code == 200:
@@ -75,7 +72,7 @@ def notify_deployment_initiated(commit_message: str) -> bool:
     if not chat_id:
         logger.warning("No notification chat ID configured")
         return False
-    
+
     message = f"DEPLOYMENT INITIATED: {commit_message}"
     return send_telegram_message(chat_id, message)
 
@@ -89,10 +86,10 @@ def notify_system_online() -> bool:
     if not chat_id:
         logger.warning("No notification chat ID configured")
         return False
-    
+
     # Get latest commit message
     commit_msg = get_latest_commit_message()
-    
+
     message = f"System Online. Latest Updates: {commit_msg}"
     return send_telegram_message(chat_id, message)
 
@@ -104,18 +101,18 @@ def get_latest_commit_message() -> str:
     repo_dir = "/app/data/nova_repo"
     if not os.path.exists(os.path.join(repo_dir, ".git")):
         repo_dir = os.getcwd()
-    
+
     try:
         result = subprocess.run(
             ["git", "log", "-1", "--pretty=format:%s"],
             cwd=repo_dir,
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
     except Exception as e:
         logger.warning(f"Could not get latest commit: {e}")
-    
+
     return "No recent updates"
