@@ -74,7 +74,11 @@ class DeploymentTaskManager:
         if run_recovery:
             try:
                 recovery = StartupRecovery()
-                summary, report = recovery.recover_interrupted_tasks()
+                # recover_interrupted_tasks returns a dict (summary)
+                summary = recovery.recover_interrupted_tasks()
+                # Get report separately
+                report = recovery.get_recovery_report()
+                
                 result["recovery_performed"] = True
                 result["recovery_summary"] = summary
                 result["recovery_report"] = report

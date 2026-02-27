@@ -32,6 +32,32 @@ except Exception as e:
 "
 }
 
+# Function to run startup recovery
+run_startup_recovery() {
+    python3 -c "
+import os
+import sys
+
+# Add the repo to path if it exists
+if os.path.exists('$REPO_DIR'):
+    sys.path.insert(0, '$REPO_DIR')
+
+try:
+    from nova.deployment_task_manager import initialize_system
+    result = initialize_system(run_recovery=True)
+    if result.get('recovery_performed'):
+        print('✅ Startup recovery completed')
+        summary = result.get('recovery_summary', {})
+        print(f'   Running tasks found: {summary.get(\"running_tasks_found\", 0)}')
+        print(f'   Tasks paused: {summary.get(\"tasks_paused\", 0)}')
+        print(f'   Checkpoints restored: {summary.get(\"checkpoints_restored\", 0)}')
+    else:
+        print('⚠️ Startup recovery not performed')
+except Exception as e:
+    print(f'⚠️ Startup recovery failed: {e}')
+"
+}
+
 # Check if GITHUB_TOKEN and GITHUB_REPO are set
 if [ -z "$GITHUB_TOKEN" ] || [ -z "$GITHUB_REPO" ]; then
     echo "⚠️ GITHUB_TOKEN or GITHUB_REPO not set. Skipping git setup."
@@ -71,6 +97,10 @@ else
     echo "📂 Repo directory not found, staying in /app"
     cd /app
 fi
+
+# Run startup recovery for interrupted tasks
+echo "🔄 Running startup recovery..."
+run_startup_recovery
 
 # Send system online notification to Telegram
 echo "📨 Sending startup notification..."
