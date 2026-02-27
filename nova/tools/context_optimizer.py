@@ -15,7 +15,7 @@ Features:
 import os
 import logging
 import asyncio
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Any
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -331,39 +331,24 @@ async def optimize_subagent_input(
     return instr_result.content, task_result.content
 
 
-async def optimize_search_results(search_results: str, max_tokens: int = 15000) -> str:
+async def optimize_search_results(search_results: str, max_tokens: int = 10000) -> str:
     """
-    Specifically optimized for web search results.
-
-    Searches often return massive amounts of text. This function
-    intelligently summarizes the results while preserving key information.
-
-    Args:
-        search_results: Raw search results text
-        max_tokens: Maximum tokens for output
-
-    Returns:
-        Optimized/summarized search results
+    Specifically optimized for web search results to prevent context bloat.
     """
-    if len(search_results) < 10000:
-        return search_results
+    if not search_results or len(str(search_results)) < 15000:
+        return str(search_results)
 
+    search_str = str(search_results)
     optimizer = get_context_optimizer()
-
-    # For search results, prefer summarization
+    
+    # We use a smaller token budget for search results within a subagent loop
     result = await optimizer.optimize(
-        search_results, method="summarize", max_tokens=max_tokens, force_summary=True
+        search_str, method="middle-out", max_tokens=max_tokens
     )
-
-    # Add header indicating optimization
+    
     if result.was_truncated:
-        optimized = (
-            f"⚠️ Search results were too large and have been summarized.\n"
-            f"Original: {result.original_length} chars → Optimized: {result.optimized_length} chars\n\n"
-            f"{result.content}"
-        )
-        return optimized
-
+        return f"--- [TRUNCATED SEARCH RESULTS to {max_tokens} tokens] ---\n{result.content}"
+    
     return result.content
 
 
@@ -378,3 +363,18 @@ def smart_chunk(content: str, chunk_size: int = 25000) -> List[str]:
     """Quick chunking without async."""
     optimizer = get_context_optimizer()
     return optimizer._chunk_content(content, chunk_size)
+
+
+def wrap_tool_output_optimization(tool_func):
+    """
+    Decorator to automatically optimize tool results.
+    """
+    import functools
+    
+    @functools.wraps(tool_func)
+    def wrapper(*args, **kwargs):
+        result = tool_func(*args, **kwargs)
+        if isinstance(result, str) and len(result) > CHAR_LIMIT_HIGH:
+            return truncate_middle(result, CHAR_LIMIT_HIGH)
+        return result
+    return wrapper
