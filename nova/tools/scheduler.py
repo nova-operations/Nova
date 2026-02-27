@@ -20,6 +20,7 @@ from croniter import croniter
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Enum, JSON
 from sqlalchemy.orm import sessionmaker
@@ -110,8 +111,14 @@ def get_scheduler() -> AsyncIOScheduler:
         )
     }
 
+    # Create executor for running async jobs
+    executors = {
+        "default": AsyncIOExecutor()
+    }
+
     _scheduler = AsyncIOScheduler(
         jobstores=jobstores,
+        executors=executors,
         job_defaults={
             "coalesce": True,  # Combine missed runs into one
             "max_instances": 1,  # Only one instance at a time
@@ -266,8 +273,12 @@ async def _execute_silent_task(job_id: int):
     return "success", "Silent task completed"
 
 
-async def _job_executor(job):
+async def _job_executor(**kwargs):
     """Main job executor that dispatches to the appropriate handler."""
+    job = kwargs.get("job")
+    if not job:
+        logger.error("No job object provided to executor")
+        return
     job_id = job.id
 
     # Get job data from database
