@@ -113,10 +113,7 @@ def _get_chat_id(chat_id: Optional[str], subagent_name: str = "") -> str:
         Valid numeric chat_id string
     """
     # If chat_id is None or empty, use default
-    if chat_id is None or chat_id == "":
-        logger.debug(
-            f"No chat_id provided for {subagent_name}, using default: {DEFAULT_CHAT_ID}"
-        )
+    if chat_id is None or chat_id == "" or chat_id == "None":
         return DEFAULT_CHAT_ID
 
     # Check if chat_id is a valid numeric string
@@ -124,10 +121,12 @@ def _get_chat_id(chat_id: Optional[str], subagent_name: str = "") -> str:
 
     # Validate it's actually numeric - if not, log warning and use default
     if not chat_id_str.isdigit():
-        logger.warning(
-            f"Invalid chat_id '{chat_id}' for {subagent_name} - "
-            f"appears to be subagent name. Using default: {DEFAULT_CHAT_ID}"
-        )
+        # Only log warning if it's not a known system/subagent identifier to reduce noise
+        if chat_id_str != "system" and not chat_id_str.startswith("auto_healer"):
+            logger.warning(
+                f"Invalid chat_id '{chat_id}' for {subagent_name} - "
+                f"appears to be subagent name. Using default: {DEFAULT_CHAT_ID}"
+            )
         return DEFAULT_CHAT_ID
 
     return chat_id_str

@@ -17,6 +17,9 @@ def get_db_url():
         except OSError:
             db_path = "nova_memory.db"
         database_url = f"sqlite:///{db_path}"
+    else:
+        # Strip potential quotes from .env
+        database_url = database_url.strip('"').strip("'")
 
     # Standardize postgres prefix
     if database_url.startswith("postgres://"):

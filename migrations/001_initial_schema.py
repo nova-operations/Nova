@@ -78,11 +78,25 @@ def run_migrations():
                 with engine.begin() as conn:
                     # Default is ACTIVE
                     conn.execute(
-                        text("ALTER TABLE scheduled_tasks ADD COLUMN status VARCHAR(20) DEFAULT 'active'")
+                        text(
+                            "ALTER TABLE scheduled_tasks ADD COLUMN status VARCHAR(20) DEFAULT 'active'"
+                        )
                     )
                 print("Added 'status' column.")
             except Exception as e:
                 print(f"Failed to add status column: {e}")
+
+        # Update TaskType ENUM for Postgres if needed
+        try:
+            with engine.begin() as conn:
+                # Check for alert in enum (Postgres specific)
+                if engine.dialect.name == "postgresql":
+                    conn.execute(
+                        text("ALTER TYPE tasktype ADD VALUE IF NOT EXISTS 'alert'")
+                    )
+                    print("Updated TaskType enum with 'alert'")
+        except Exception as e:
+            print(f"ENUM update note (might already exist): {e}")
 
     # 4. Add deployment_pending column to active_tasks if not exists
     # (for tracking when deployment should wait for task)

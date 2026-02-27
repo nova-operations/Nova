@@ -50,7 +50,14 @@ class ErrorBusHandler(logging.Handler):
             "nova.tools.subagent",
             "httpx",
             "telegram",
+            "agno",
+            "openai",
         ):
+            return
+
+        # Ignore transient API errors
+        msg = record.getMessage()
+        if "Internal Server Error" in msg or "Rate limit" in msg or "Timeout" in msg:
             return
 
         self._inside = True

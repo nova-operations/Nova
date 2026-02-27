@@ -50,6 +50,7 @@ class TaskType(str, enum.Enum):
     SUBAGENT_RECALL = "subagent_recall"
     TEAM_TASK = "team_task"
     SILENT = "silent"
+    ALERT = "alert"
 
 
 class ScheduledTask(Base):
@@ -60,7 +61,7 @@ class ScheduledTask(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     task_name = Column(String(255), nullable=False, unique=True)
     schedule = Column(String(100), nullable=False)  # Cron format
-    task_type = Column(Enum(TaskType), nullable=False)
+    task_type = Column(String(50), nullable=False)
     script_path = Column(Text, nullable=True)  # Path to shell script
     subagent_name = Column(String(255), nullable=True)  # Name for subagent
     subagent_instructions = Column(
@@ -112,9 +113,7 @@ def get_scheduler() -> AsyncIOScheduler:
     }
 
     # Create executor for running async jobs
-    executors = {
-        "default": AsyncIOExecutor()
-    }
+    executors = {"default": AsyncIOExecutor()}
 
     _scheduler = AsyncIOScheduler(
         jobstores=jobstores,
@@ -273,6 +272,13 @@ async def _execute_silent_task(job_id: int):
     return "success", "Silent task completed"
 
 
+async def _execute_alert_task(job_id: int, alert_message: str):
+    """Execute an alert task (sends a direct message)."""
+    logger.info(f"Executing alert task: {job_id}")
+    await _send_telegram_notification(alert_message)
+    return "success", f"Alert sent: {alert_message}"
+
+
 async def _job_executor(job_id: int):
     """Main job executor that dispatches to the appropriate handler."""
     # Get job data from database
@@ -330,6 +336,12 @@ async def _job_executor(job_id: int):
         elif task.task_type == TaskType.SILENT:
             status, output = await _execute_silent_task(job_id)
 
+        elif task.task_type == TaskType.ALERT:
+            if not task.subagent_task:
+                logger.error(f"No alert message for alert task: {job_id}")
+                return
+            status, output = await _execute_alert_task(job_id, task.subagent_task)
+
         else:
             logger.error(f"Unknown task type: {task.task_type}")
             return
@@ -377,6 +389,7 @@ def add_scheduled_task(
     subagent_task: Optional[str] = None,
     team_members: Optional[List[str]] = None,
     notification_enabled: bool = True,
+    alert_message: Optional[str] = None,
 ) -> str:
     """
     Add a new scheduled task.
@@ -388,8 +401,9 @@ def add_scheduled_task(
         script_path: Path to shell script (for standalone_sh)
         subagent_name: Name for subagent (for subagent_recall)
         subagent_instructions: Instructions for subagent (for subagent_recall)
-        subagent_task: Task prompt for subagent (for subagent_recall)
+        subagent_task: Task prompt for subagent (for subagent_recall) or alert message (for alert)
         notification_enabled: Whether to send notifications
+        alert_message: Message for alert (shorthand for subagent_task)
 
     Returns:
         Confirmation message
@@ -399,7 +413,7 @@ def add_scheduled_task(
         return f"Error: Invalid cron expression: {schedule}"
 
     # Validate task type
-    valid_types = ["standalone_sh", "subagent_recall", "team_task", "silent"]
+    valid_types = ["standalone_sh", "subagent_recall", "team_task", "silent", "alert"]
     if task_type not in valid_types:
         return f"Error: Invalid task_type. Must be one of: {valid_types}"
 
@@ -409,6 +423,12 @@ def add_scheduled_task(
 
     if task_type == "subagent_recall" and not subagent_task:
         return "Error: subagent_task required for subagent_recall task"
+
+    if task_type == "alert":
+        if not subagent_task and not alert_message:
+            return "Error: alert_message required for alert task"
+        # Use alert_message if provided, otherwise fallback to subagent_task
+        subagent_task = alert_message or subagent_task
 
     # Save to database
 
@@ -475,7 +495,7 @@ def list_scheduled_tasks() -> str:
 
         for task in tasks:
             lines.append(f"**ID: {task.id} | {task.task_name}**")
-            lines.append(f"  Type: {task.task_type.value}")
+            lines.append(f"  Type: {task.task_type}")
             lines.append(f"  Schedule: {task.schedule}")
             lines.append(f"  Status: {task.status.value}")
             lines.append(
@@ -508,7 +528,7 @@ def get_scheduled_task(task_name: str) -> str:
 
         lines = [f"**Task: {task.task_name}**", ""]
         lines.append(f"ID: {task.id}")
-        lines.append(f"Type: {task.task_type.value}")
+        lines.append(f"Type: {task.task_type}")
         lines.append(f"Schedule: {task.schedule}")
         lines.append(f"Status: {task.status.value}")
         lines.append(
@@ -543,11 +563,13 @@ def get_scheduled_task(task_name: str) -> str:
 def update_scheduled_task(
     task_name: str,
     schedule: Optional[str] = None,
+    task_type: Optional[str] = None,
     script_path: Optional[str] = None,
     subagent_name: Optional[str] = None,
     subagent_instructions: Optional[str] = None,
     subagent_task: Optional[str] = None,
     notification_enabled: Optional[bool] = None,
+    alert_message: Optional[str] = None,
 ) -> str:
     """Update an existing scheduled task."""
 
@@ -567,6 +589,18 @@ def update_scheduled_task(
                 return f"Error: Invalid cron expression: {schedule}"
             task.schedule = schedule
 
+        if task_type is not None:
+            valid_types = [
+                "standalone_sh",
+                "subagent_recall",
+                "team_task",
+                "silent",
+                "alert",
+            ]
+            if task_type not in valid_types:
+                return f"Error: Invalid task_type. Must be one of: {valid_types}"
+            task.task_type = TaskType(task_type)
+
         if script_path is not None:
             task.script_path = script_path
 
@@ -578,6 +612,9 @@ def update_scheduled_task(
 
         if subagent_task is not None:
             task.subagent_task = subagent_task
+
+        if alert_message is not None:
+            task.subagent_task = alert_message
 
         if notification_enabled is not None:
             task.notification_enabled = notification_enabled
@@ -726,7 +763,11 @@ def run_scheduled_task_now(task_name: str) -> str:
         # Create a one-time job
         scheduler = get_scheduler()
         job = scheduler.add_job(
-            _job_executor, "date", run_date=datetime.utcnow(), id=f"manual_{task.id}", args=[task.id]
+            _job_executor,
+            "date",
+            run_date=datetime.utcnow(),
+            id=f"manual_{task.id}",
+            args=[task.id],
         )
 
         return f"🚀 Task '{task_name}' triggered manually."
