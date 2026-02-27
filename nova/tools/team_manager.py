@@ -6,7 +6,7 @@ from agno.agent import Agent
 from agno.team import Team
 from agno.models.openai import OpenAIChat
 from nova.db.engine import get_agno_db
-from nova.tools.specialist_registry import get_specialist_config
+from nova.tools.specialist_registry import get_specialist_config, list_all_specialists
 from nova.tools.registry import get_tools_by_names
 from nova.tools.subagent import SUBAGENTS
 from nova.tools.streaming_utils import (
@@ -28,6 +28,7 @@ def create_specialist_agent(
     config = get_specialist_config(name)
     if not config:
         logger.error(f"Specialist '{name}' not found in registry.")
+        logger.error(f"Available specialists: {list_all_specialists()}")
         return None
 
     api_key = os.getenv("OPENROUTER_API_KEY")
@@ -84,13 +85,30 @@ async def run_team_task(
     try:
         # Build specialists
         members = []
+        missing_specialists = []
+        
         for s_name in specialist_names:
             agent = create_specialist_agent(s_name)
             if agent:
                 members.append(agent)
+            else:
+                missing_specialists.append(s_name)
+                logger.error(f"Failed to create specialist agent: {s_name}")
 
         if not members:
-            return "Error: Could not instantiate any specialists for the team."
+            available = list_all_specialists()
+            error_msg = f"Error: Could not instantiate any specialists for the team."
+            if missing_specialists:
+                error_msg += f" Missing: {missing_specialists}. Available: {available}"
+            logger.error(error_msg)
+            return error_msg
+
+        # If some specialists are missing, log warning but continue
+        if missing_specialists:
+            logger.warning(
+                f"Team '{task_name}' running with reduced members. "
+                f"Missing: {missing_specialists}"
+            )
 
         # Team setup with mandatory SAU instructions
         team_instructions = """## MANDATORY LIVE UPDATES (SAU) - REAL-TIME MODE:
@@ -98,7 +116,7 @@ This team MUST use SAU streaming updates for all progress reporting.
 The header format is: [SAU: {team_name}]
 - Report key milestones as they occur.
 - DO NOT stream every line of output or every internal thought.
-- You can commit code, but you CANNOT push to remote. Nova PM handles all pushes.
+- You can commit code, but you cannot push to remote. Nova PM handles all pushes.
 """
 
         team = Team(

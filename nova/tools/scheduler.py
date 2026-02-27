@@ -273,16 +273,9 @@ async def _execute_silent_task(job_id: int):
     return "success", "Silent task completed"
 
 
-async def _job_executor(**kwargs):
+async def _job_executor(job_id: int):
     """Main job executor that dispatches to the appropriate handler."""
-    job = kwargs.get("job")
-    if not job:
-        logger.error("No job object provided to executor")
-        return
-    job_id = job.id
-
     # Get job data from database
-
     db = get_session()
 
     try:
@@ -453,6 +446,7 @@ def add_scheduled_task(
             _job_executor,
             trigger=CronTrigger.from_crontab(schedule),
             id=str(task.id),
+            args=[task.id],
             replace_existing=True,
         )
 
@@ -602,6 +596,7 @@ def update_scheduled_task(
                 _job_executor,
                 trigger=CronTrigger.from_crontab(task.schedule),
                 id=str(task.id),
+                args=[task.id],
                 replace_existing=True,
             )
 
@@ -703,6 +698,7 @@ def resume_scheduled_task(task_name: str) -> str:
             _job_executor,
             trigger=CronTrigger.from_crontab(task.schedule),
             id=str(task.id),
+            args=[task.id],
             replace_existing=True,
         )
 
@@ -730,7 +726,7 @@ def run_scheduled_task_now(task_name: str) -> str:
         # Create a one-time job
         scheduler = get_scheduler()
         job = scheduler.add_job(
-            _job_executor, "date", run_date=datetime.utcnow(), id=f"manual_{task.id}"
+            _job_executor, "date", run_date=datetime.utcnow(), id=f"manual_{task.id}", args=[task.id]
         )
 
         return f"🚀 Task '{task_name}' triggered manually."
@@ -771,6 +767,7 @@ def start_scheduler() -> str:
                     _job_executor,
                     trigger=CronTrigger.from_crontab(task.schedule),
                     id=str(task.id),
+                    args=[task.id],
                     replace_existing=True,
                 )
                 logger.info(f"Loaded task: {task.task_name}")

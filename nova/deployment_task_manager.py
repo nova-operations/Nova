@@ -64,12 +64,26 @@ class DeploymentTaskManager:
         """
         Initialize the system on startup.
         Runs recovery if specified, returns status.
+        Also seeds default specialist configurations.
         """
         result = {
             "initialized": True,
             "recovery_performed": False,
             "recovery_summary": None,
+            "specialists_seeded": False,
+            "seeding_result": None,
         }
+
+        # Seed default specialists first (needed for team tasks)
+        try:
+            from nova.tools.specialist_registry import seed_default_specialists
+            seeding_result = seed_default_specialists()
+            result["specialists_seeded"] = True
+            result["seeding_result"] = seeding_result
+            logger.info(f"Specialist seeding: {seeding_result}")
+        except Exception as e:
+            result["seeding_result"] = f"Error: {e}"
+            logger.error(f"Failed to seed specialists: {e}")
 
         if run_recovery:
             try:
