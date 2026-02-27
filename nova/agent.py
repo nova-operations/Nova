@@ -266,7 +266,7 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
     Nova acts as a Project Manager that spawns subagents and provides SAU (live) updates.
     """
     if model_id is None:
-        model_id = os.getenv("AGENT_MODEL", "google/gemini-2.0-flash-001")
+        model_id = os.getenv("AGENT_MODEL", "google/gemini-3-flash-preview")
     api_key = os.getenv("OPENROUTER_API_KEY")
 
     model = OpenAIChat(

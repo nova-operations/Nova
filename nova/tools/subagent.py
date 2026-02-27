@@ -159,7 +159,12 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             # PROACTIVE RECOVERY: Wake up Nova to handle the failure
             if chat_id:
                 from nova.telegram_bot import reinvigorate_nova
-                asyncio.create_task(reinvigorate_nova(chat_id, f"Subagent '{name}' failed with error: {str(e)}"))
+
+                asyncio.create_task(
+                    reinvigorate_nova(
+                        chat_id, f"Subagent '{name}' failed with error: {str(e)}"
+                    )
+                )
 
     # REMOVED: Final notification block
     # The StreamingContext now handles all completion messaging automatically
@@ -255,7 +260,7 @@ async def create_subagent(
     if not api_key:
         return "Error: OPENROUTER_API_KEY not set."
 
-    subagent_model = os.getenv("SUBAGENT_MODEL", "google/gemini-2.0-flash-001")
+    subagent_model = os.getenv("SUBAGENT_MODEL", "minimax/minimax-m2.5")
 
     model = OpenAIChat(
         id=subagent_model,

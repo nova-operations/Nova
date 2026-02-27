@@ -18,7 +18,9 @@ class SpecialistConfig(Base):
     name = Column(String(255), nullable=False, unique=True)
     role = Column(Text, nullable=False)
     instructions = Column(Text, nullable=False)
-    model = Column(String(255), default="google/gemini-2.0-flash-001")
+    model = Column(
+        String(255), default=lambda: os.getenv("SUBAGENT_MODEL", "minimax/minimax-m2.5")
+    )
     tools = Column(JSON, default=list)  # List of tool names the agent should have
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

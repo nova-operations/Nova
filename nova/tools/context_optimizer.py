@@ -54,9 +54,7 @@ class ContextOptimizer:
     """
 
     def __init__(self, model_id: str = None, api_key: str = None):
-        self.model_id = model_id or os.getenv(
-            "SUBAGENT_MODEL", "google/gemini-2.0-flash-001"
-        )
+        self.model_id = model_id or os.getenv("SUBAGENT_MODEL", "minimax/minimax-m2.5")
         self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
         self.base_url = "https://openrouter.ai/api/v1"
 
