@@ -271,6 +271,51 @@ class StartupRecovery:
             
         finally:
             session.close()
+    
+    def generate_startup_announcement(self) -> str:
+        """
+        Generate an announcement message about interrupted tasks.
+        This is sent to Telegram on system startup if there were issues.
+        """
+        summary = self.recover_interrupted_tasks()
+        report = self.get_recovery_report()
+        
+        lines = []
+        
+        # Header
+        lines.append("SYSTEM RECOVERY REPORT")
+        lines.append("=" * 30)
+        
+        # Tasks found
+        if summary.get("running_tasks_found", 0) > 0:
+            lines.append(f"Interrupted tasks found: {summary['running_tasks_found']}")
+            lines.append(f"Tasks paused: {summary['tasks_paused']}")
+            lines.append(f"Checkpoints saved: {summary['checkpoints_restored']}")
+        else:
+            lines.append("No interrupted tasks found.")
+        
+        # Paused tasks detail
+        if report["paused_tasks"]:
+            lines.append("")
+            lines.append("PAUSED TASKS (can be resumed):")
+            for task in report["paused_tasks"]:
+                lines.append(f"  - {task['subagent_name']} ({task['task_id'][:8]}...)")
+                if task['available_checkpoints']:
+                    lines.append(f"    Checkpoints: {len(task['available_checkpoints'])}")
+        
+        # Failed deployments
+        if report["failed_deployments"]:
+            lines.append("")
+            lines.append("FAILED DEPLOYMENTS:")
+            for deploy in report["failed_deployments"]:
+                lines.append(f"  - {deploy['deployment_type']} for {deploy['target_service']}")
+                lines.append(f"    Error: {deploy['error'][:50]}...")
+        
+        # Status
+        lines.append("")
+        lines.append("System is now operational.")
+        
+        return "\n".join(lines)
 
 
 def run_recovery():
@@ -313,6 +358,30 @@ def run_recovery():
     logger.info("=" * 50)
     
     return summary, report
+
+
+def notify_recovery_to_telegram() -> bool:
+    """
+    Send recovery notification to Telegram.
+    Returns True if notification was sent.
+    """
+    try:
+        recovery = StartupRecovery()
+        announcement = recovery.generate_startup_announcement()
+        
+        # Only send if there were interrupted tasks
+        summary, _ = recovery.recover_interrupted_tasks()
+        if summary.get("running_tasks_found", 0) > 0:
+            from nova.tools.telegram_notifier import send_telegram_message, get_notifications_chat_id
+            chat_id = get_notifications_chat_id()
+            if chat_id:
+                return send_telegram_message(chat_id, announcement)
+        
+        return False
+        
+    except Exception as e:
+        logger.error(f"Failed to send recovery notification: {e}")
+        return False
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 import asyncio
 import uuid
 import logging
+import threading
 from typing import Dict, Optional, List
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
@@ -50,10 +51,24 @@ from nova.tools.streaming_utils import (
     strip_all_formatting,
 )
 
+# Import task tracker for deployment locking integration
+from nova.task_tracker import TaskTracker
+
 load_dotenv()
 
 # Global dictionary to store running subagents
 SUBAGENTS: Dict[str, Dict] = {}
+
+# Global task tracker instance
+_task_tracker: Optional[TaskTracker] = None
+
+
+def get_task_tracker() -> TaskTracker:
+    """Get or create the global task tracker instance."""
+    global _task_tracker
+    if _task_tracker is None:
+        _task_tracker = TaskTracker()
+    return _task_tracker
 
 
 def get_telegram_bot():
@@ -106,6 +121,7 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
 
     name = subagent_data.get("name", "Unknown")
     chat_id = subagent_data.get("chat_id")
+    task_tracker = get_task_tracker()
 
     # Create streaming context for SAU updates
     # REAL-TIME MODE: Each stream.send() sends immediately to Telegram
@@ -123,6 +139,9 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             # Pre-process the instruction - send progress
             await stream.send("Analyzing task requirements...")
             
+            # Update task tracker with heartbeat
+            task_tracker.update_heartbeat(subagent_id)
+            
             # Run the agent asynchronously
             await stream.send("Executing task with AI model...")
             response = await agent.arun(instruction)
@@ -130,6 +149,9 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             # Process result - stream each line
             await stream.send("Processing results and preparing output...")
             result = response.content
+            
+            # Update progress in task tracker
+            task_tracker.update_progress(subagent_id, 50)
             
             # STREAM EACH LINE OF RESULT INDIVIDUALLY
             if result and chat_id:
@@ -155,11 +177,17 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
 
             logging.info(f"Subagent {subagent_id} completed.")
             
+            # Unregister from task tracker on completion
+            task_tracker.unregister_task(subagent_id, {"status": "completed", "result_preview": str(result)[:500] if result else None})
+            
             # StreamingContext will send completion automatically on __aexit__
 
         except Exception as e:
             SUBAGENTS[subagent_id]["status"] = "failed"
             SUBAGENTS[subagent_id]["result"] = str(e)
+
+            # Unregister from task tracker on failure
+            task_tracker.unregister_task(subagent_id, {"status": "failed", "error": str(e)})
 
             # Send error notification via SAU (sent immediately)
             await stream.send(f"Task failed: {str(e)}", msg_type="error")
@@ -412,6 +440,23 @@ async def create_subagent(
         "chat_id": chat_id,
     }
 
+    # Register task with task tracker for deployment locking integration
+    task_tracker = get_task_tracker()
+    initial_state = {
+        "subagent_name": name,
+        "chat_id": chat_id,
+        "instruction_preview": task[:200] if task else None,
+    }
+    task_tracker.register_task(
+        task_id=subagent_id,
+        task_type="subagent",
+        subagent_name=name,
+        project_id=None,
+        description=f"Subagent task: {name}",
+        initial_state=initial_state,
+    )
+    logging.info(f"Registered task {subagent_id} with task tracker for deployment locking")
+
     # Heartbeat monitoring DISABLED - SAU real-time is the mandatory default
     logging.info(
         f"Subagent '{name}' created - SAU real-time updates enabled (heartbeat disabled)"
@@ -471,6 +516,10 @@ def kill_subagent(subagent_id: str) -> str:
     if data["status"] in ["running", "starting"]:
         data["task_obj"].cancel()
         data["status"] = "cancelled"
+
+        # Unregister from task tracker
+        task_tracker = get_task_tracker()
+        task_tracker.unregister_task(subagent_id, {"status": "cancelled"})
 
         # Send cancellation notification via SAU
         chat_id = data.get("chat_id")
