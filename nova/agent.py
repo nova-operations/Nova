@@ -70,6 +70,7 @@ from nova.tools.mcp_tools import (
 from nova.tools.specialist_registry import save_specialist_config, list_specialists
 from nova.tools.team_manager import run_team_task
 from nova.tools.audio_tool_wrapper import send_audio_message
+from nova.tools.dev_protocol import run_protocol
 from nova.logger import setup_logging
 
 try:
@@ -314,6 +315,7 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
         list_specialists,
         run_team_task,
         send_audio_message,
+        run_protocol,
     ]
 
     # Append the cached MCP toolkits
@@ -336,8 +338,10 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
             "## CENTRALIZED COORDINATION & GIT MANAGEMENT:",
             "1. You are the ONLY agent allowed to PUSH code to production via `push_to_github`.",
             "2. Subagents can commit and propose changes, but you must coordinate the final push.",
-            "3. Before pushing, summarize what is being deployed to the user in a human way.",
-            "4. You decide when to schedule pushes and how to batch them for a smooth experience.",
+            "3. MANDATORY COMMIT PROTOCOL: All code commits MUST be made via the `run_protocol` tool.",
+            "4. The `run_protocol` tool ensures all tests pass and quality checks are met before a commit is allowed.",
+            "5. Before pushing, summarize what is being deployed to the user in a human way.",
+            "6. You decide when to schedule pushes and how to batch them for a smooth experience.",
             "",
             "## SYSTEM LOG & MEMORY AWARENESS:",
             "1. You have active memory of all subagents via Agno and PostgreSQL.",

@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-async def test_audio_message():
+async def verify_audio_message():
     """Test sending an audio message to the user."""
     from telegram import Bot
     from nova.tools.audio_tools import (
@@ -72,7 +72,7 @@ async def test_audio_message():
         logger.error("Failed to send audio message")
 
 
-async def test_edge_tts_direct():
+async def verify_edge_tts_direct():
     """Direct test of edge-tts generation."""
     from nova.tools.audio_tools import generate_edge_tts, save_audio_file
 
@@ -97,7 +97,7 @@ if __name__ == "__main__":
 
     # First test edge-tts directly
     print("\n1. Testing edge-tts generation...")
-    result = asyncio.run(test_edge_tts_direct())
+    result = asyncio.run(verify_edge_tts_direct())
 
     if result:
         print("Edge-TTS test: PASSED")
@@ -106,6 +106,6 @@ if __name__ == "__main__":
 
     # Then test Telegram sending
     print("\n2. Testing Telegram audio message...")
-    asyncio.run(test_audio_message())
+    asyncio.run(verify_audio_message())
 
     print("\nTest complete!")
