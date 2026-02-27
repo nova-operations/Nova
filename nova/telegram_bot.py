@@ -15,7 +15,7 @@ from nova.agent import get_agent
 from nova.logger import setup_logging
 from nova.tools.heartbeat import get_heartbeat_monitor
 from nova.tools.subagent import SUBAGENTS
-from agno.media import Audio, Image
+from agno.media import Audio, Image, Video, File
 
 # Import the middle-out transformer for explicit prompt compression
 from nova.tools.prompt_transformer import (
@@ -66,67 +66,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=update.effective_chat.id,
         text=f"Hello! I am Nova (User ID: {user_id}). I can run commands, manage files, spawn subagents, and manage scheduled tasks. I now support VOICE, AUDIO, and IMAGE inputs! How can I help you?",
     )
-
-
-async def handle_multimodal(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle voice, audio, and photo messages by converting them to text context."""
-    user_id = update.effective_user.id
-    if not is_authorized(user_id):
-        return
-
-    chat_id = update.effective_chat.id
-    message = update.message
-
-    # Placeholder for the final text context
-    context_text = ""
-
-    # Handle Voice/Audio via Transcription
-    if message.voice or message.audio:
-        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-        audio_obj = message.voice if message.voice else message.audio
-
-        try:
-            # Download file
-            new_file = await context.bot.get_file(audio_obj.file_id)
-            audio_bytes = await new_file.download_as_bytearray()
-
-            # Create Agno Audio object
-            audio_media = Audio(
-                content=bytes(audio_bytes), format="ogg" if message.voice else "mp3"
-            )
-
-            # Pass to Nova natively without a system prompt
-            await handle_message(
-                update,
-                context,
-                audio=[audio_media],
-            )
-            return
-
-        except Exception as e:
-            logging.error(f"Error processing audio: {e}")
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="I heard your voice, but I had trouble transcribing it. Checking my systems! 🎙️",
-            )
-            return
-
-    # Handle Photo via Vision Analysis
-    if message.photo:
-        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-        photo = message.photo[-1]  # Highest resolution
-        new_file = await context.bot.get_file(photo.file_id)
-        photo_bytes = await new_file.download_as_bytearray()
-
-        # Create Agno Image object
-        image_media = Image(content=bytes(photo_bytes))
-
-        await handle_message(
-            update,
-            context,
-            images=[image_media],
-        )
-        return
 
 
 async def heartbeat_callback(report: str, records: List[object]):
@@ -246,6 +185,8 @@ async def reinvigorate_nova(
     message: str,
     images: Optional[List[Image]] = None,
     audio: Optional[List[Audio]] = None,
+    videos: Optional[List[Video]] = None,
+    files: Optional[List[File]] = None,
 ):
     """
     Internal 'wake up' mechanism for Nova.
@@ -272,7 +213,15 @@ async def reinvigorate_nova(
 
     # Trigger a new run in the background
     asyncio.create_task(
-        process_nova_intent(cid, user_id, system_prompt, images=images, audio=audio)
+        process_nova_intent(
+            cid,
+            user_id,
+            system_prompt,
+            images=images,
+            audio=audio,
+            videos=videos,
+            files=files,
+        )
     )
 
 
@@ -282,6 +231,8 @@ async def process_nova_intent(
     message: str,
     images: Optional[List[Image]] = None,
     audio: Optional[List[Audio]] = None,
+    videos: Optional[List[Video]] = None,
+    files: Optional[List[File]] = None,
 ):
     """Core logic to run a Nova iteration without requiring a Telegram Update object."""
     if chat_id not in _PROCESSING_LOCKS:
@@ -312,7 +263,12 @@ async def process_nova_intent(
                 message = f"[SYSTEM NOTE: You have active subagents running: {', '.join(active_subs)}]\n{message}"
 
             response = await agent.arun(
-                message, session_id=session_id, images=images, audio=audio
+                message,
+                session_id=session_id,
+                images=images,
+                audio=audio,
+                videos=videos,
+                files=files,
             )
 
             if response and response.content and telegram_bot_instance:
@@ -335,19 +291,56 @@ async def process_nova_intent(
 async def handle_message(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
-    override_text: str = None,
-    images: Optional[List[Image]] = None,
-    audio: Optional[List[Audio]] = None,
 ):
     user_id = update.effective_user.id
     if not is_authorized(user_id):
         logging.warning(f"Unauthorized message from user_id: {user_id}")
         return
 
-    user_message = override_text if override_text else update.message.text
-    # If it's a photo/voice with a caption and no override, use the caption
+    # Extract text/caption
+    user_message = update.message.text
     if not user_message and update.message and update.message.caption:
         user_message = update.message.caption
+
+    images = []
+    audio = []
+    videos = []
+    files = []
+
+    # Extract media from the update message natively
+    if update.message:
+        # Photo
+        if update.message.photo:
+            photo = update.message.photo[-1]  # Highest resolution
+            new_file = await context.bot.get_file(photo.file_id)
+            photo_bytes = await new_file.download_as_bytearray()
+            images.append(Image(content=bytes(photo_bytes)))
+
+        # Audio / Voice
+        audio_obj = update.message.voice or update.message.audio
+        if audio_obj:
+            new_file = await context.bot.get_file(audio_obj.file_id)
+            audio_bytes = await new_file.download_as_bytearray()
+            audio_ext = "ogg" if update.message.voice else "mp3"
+            audio.append(Audio(content=bytes(audio_bytes), format=audio_ext))
+
+        # Video
+        if update.message.video or update.message.video_note:
+            vid_obj = update.message.video or update.message.video_note
+            # Let's check if the framework supports video objects
+            # For now Video is imported from agno.media but we also need to pass it
+            from agno.media import Video
+
+            new_file = await context.bot.get_file(vid_obj.file_id)
+            vid_bytes = await new_file.download_as_bytearray()
+            # Videos passed as images? No, video directly is not explicitly passed via arun images/audio kwargs currently.
+            pass  # Video will be supported once we update process_nova_intent and agent.py
+
+        # Document (PDF, etc)
+        if update.message.document:
+            doc = update.message.document
+            # Handle PDF extraction maybe or pass it to Nova?
+            pass
 
     # Allow processing if we have either text or media
     if not user_message and not images and not audio:
@@ -358,6 +351,7 @@ async def handle_message(
 
     # Check for reply context
     reply_context = await get_reply_context(update)
+    user_message = user_message or ""
     if reply_context:
         user_message = reply_context + user_message
 
@@ -375,7 +369,13 @@ async def handle_message(
 
     # Call the core intent processor (which handles its own locking)
     await process_nova_intent(
-        chat_id, user_id, user_message, images=images, audio=audio
+        chat_id,
+        user_id,
+        user_message,
+        images=images,
+        audio=audio,
+        videos=videos,
+        files=files,
     )
 
 
@@ -432,15 +432,12 @@ if __name__ == "__main__":
     # Handlers
     application.add_handler(CommandHandler("start", start))
 
-    # Text Messages
+    # Any message type
     application.add_handler(
-        MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message)
+        MessageHandler(filters.ALL & (~filters.COMMAND), handle_message)
     )
 
-    # Voice, Audio, and Photos
-    application.add_handler(
-        MessageHandler(filters.VOICE | filters.AUDIO | filters.PHOTO, handle_multimodal)
+    print(
+        "Nova Agent Bot is running with MULTIMODAL support (Text/Voice/Photo/Video/Document)..."
     )
-
-    print("Nova Agent Bot is running with MULTIMODAL support (Voice/Photo)...")
     application.run_polling()

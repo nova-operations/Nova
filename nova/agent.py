@@ -12,7 +12,7 @@ from datetime import timedelta
 from dotenv import load_dotenv
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
-from agno.media import Audio, Image
+from agno.media import Audio, Image, Video, File
 from agno.skills import Skills, LocalSkills
 from nova.db.engine import get_agno_db
 
@@ -180,6 +180,8 @@ class ContextCompressedAgent(Agent):
         session_id: Optional[str] = None,
         images: Optional[List[Image]] = None,
         audio: Optional[List[Audio]] = None,
+        videos: Optional[List[Video]] = None,
+        files: Optional[List[File]] = None,
         **kwargs,
     ):
         """
@@ -190,7 +192,13 @@ class ContextCompressedAgent(Agent):
         """
         if not self._context_compression_enabled:
             return await super().arun(
-                message, session_id=session_id, images=images, audio=audio, **kwargs
+                message,
+                session_id=session_id,
+                images=images,
+                audio=audio,
+                videos=videos,
+                files=files,
+                **kwargs,
             )
 
         # Build the full prompt (similar to how Agno builds it internally)
@@ -199,7 +207,13 @@ class ContextCompressedAgent(Agent):
         try:
             # Run the parent method but catch context length errors
             response = await super().arun(
-                message, session_id=session_id, images=images, audio=audio, **kwargs
+                message,
+                session_id=session_id,
+                images=images,
+                audio=audio,
+                videos=videos,
+                files=files,
+                **kwargs,
             )
             return response
         except Exception as e:
@@ -225,7 +239,13 @@ class ContextCompressedAgent(Agent):
 
                 # Retry with compressed context
                 response = await super().arun(
-                    message, session_id=session_id, images=images, audio=audio, **kwargs
+                    message,
+                    session_id=session_id,
+                    images=images,
+                    audio=audio,
+                    videos=videos,
+                    files=files,
+                    **kwargs,
                 )
                 return response
             else:
