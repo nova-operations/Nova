@@ -1,6 +1,7 @@
 import os
 import subprocess
 import logging
+import sys
 from typing import Optional, List, Tuple
 
 
@@ -87,26 +88,63 @@ def push_to_github(
     branch: str = "main",
     files: Optional[List[str]] = None,
     force: bool = False,
+    skip_tests: bool = False,
 ) -> str:
     """
     Commits and pushes changes to the GitHub repository.
     This triggers a redeployment on Railway if connected.
 
-    Before pushing, checks for active tasks. If tasks are running,
-    sets deployment_pending flag and notifies the user.
+    Before pushing:
+    1. Checks for active tasks (unless force=True).
+    2. Runs the test suite (unless skip_tests=True).
 
-    Use force=True to skip the active task check (for emergency deployments).
+    Use force=True to skip the active task check.
+    Use skip_tests=True if you are absolutely sure about the changes.
 
     Args:
         commit_message: The commit message describing the changes.
         branch: The branch to push to (default: main).
         files: Optional list of files to add. If None, adds all changes.
         force: If True, skip active task check (default: False).
+        skip_tests: If True, skip running tests before push (default: False).
 
     Returns:
         A status message indicating success or failure.
     """
-    # Check for active tasks unless force is True
+    # Prioritize the persistent repo path
+    repo_dir = "/app/data/nova_repo"
+    if not os.path.exists(repo_dir):
+        repo_dir = os.getcwd()  # Fallback
+
+    # 1. Run tests unless skipped
+    if not skip_tests:
+        logging.info("Running tests before push...")
+        test_env = os.environ.copy()
+        test_env["PYTHONPATH"] = repo_dir
+
+        try:
+            # Run pytest from the repo directory
+            test_result = subprocess.run(
+                [sys.executable, "-m", "pytest", "tests/"],
+                cwd=repo_dir,
+                env=test_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            if test_result.returncode != 0:
+                return (
+                    f"❌ PUSH REJECTED: Tests failed!\n\n"
+                    f"You must fix tests before pushing to ensure system stability.\n"
+                    f"Use skip_tests=True only for emergency hotfixes when tests are irrelevant.\n\n"
+                    f"Output:\n{test_result.stdout[-1000:]}\n{test_result.stderr[-1000:]}"
+                )
+            logging.info("✅ Tests passed.")
+        except Exception as e:
+            return f"Error running tests: {e}"
+
+    # 2. Check for active tasks unless force is True
     if not force:
         has_active, task_message = check_active_tasks()
 
@@ -140,11 +178,6 @@ def push_to_github(
                 f"Either wait for tasks to complete or use force=True to override. "
                 f"Deployment will be blocked until all tasks finish."
             )
-
-    # Prioritize the persistent repo path
-    repo_dir = "/app/data/nova_repo"
-    if not os.path.exists(repo_dir):
-        repo_dir = os.getcwd()  # Fallback
 
     try:
         # Check if directory exists and is a git repo

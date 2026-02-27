@@ -6,7 +6,7 @@ from agno.agent import Agent
 from agno.team import Team
 from agno.models.openai import OpenAIChat
 from nova.db.engine import get_agno_db
-from nova.tools.specialist_registry import get_specialist_config, list_all_specialists
+from nova.tools.specialist_registry import get_specialist_config, list_specialists
 from nova.tools.registry import get_tools_by_names
 from nova.tools.subagent import SUBAGENTS
 from nova.tools.streaming_utils import (
@@ -28,7 +28,7 @@ def create_specialist_agent(
     config = get_specialist_config(name)
     if not config:
         logger.error(f"Specialist '{name}' not found in registry.")
-        logger.error(f"Available specialists: {list_all_specialists()}")
+        logger.error(f"Available specialists: {list_specialists()}")
         return None
 
     api_key = os.getenv("OPENROUTER_API_KEY")
@@ -86,7 +86,7 @@ async def run_team_task(
         # Build specialists
         members = []
         missing_specialists = []
-        
+
         for s_name in specialist_names:
             agent = create_specialist_agent(s_name)
             if agent:
@@ -96,7 +96,7 @@ async def run_team_task(
                 logger.error(f"Failed to create specialist agent: {s_name}")
 
         if not members:
-            available = list_all_specialists()
+            available = list_specialists()
             error_msg = f"Error: Could not instantiate any specialists for the team."
             if missing_specialists:
                 error_msg += f" Missing: {missing_specialists}. Available: {available}"
@@ -164,17 +164,21 @@ The header format is: [SAU: {team_name}]
                     SUBAGENTS[subagent_id]["result"] = response.content
 
                     await stream.send("Team task completed successfully!")
-                    
+
                 except Exception as e:
                     SUBAGENTS[subagent_id]["status"] = "failed"
                     SUBAGENTS[subagent_id]["result"] = str(e)
                     await stream.send(f"Team task failed: {str(e)}", msg_type="error")
-                    
+
                     # PROACTIVE RECOVERY: Wake up Nova
                     if chat_id:
                         from nova.telegram_bot import reinvigorate_nova
-                        asyncio.create_task(reinvigorate_nova(chat_id, f"Team '{task_name}' failed: {str(e)}"))
 
+                        asyncio.create_task(
+                            reinvigorate_nova(
+                                chat_id, f"Team '{task_name}' failed: {str(e)}"
+                            )
+                        )
 
         if chat_id:
             # Send minimal notification that team is starting

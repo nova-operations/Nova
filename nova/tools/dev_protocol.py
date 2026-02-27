@@ -4,7 +4,9 @@ import sys
 from typing import Optional
 
 
-def run_protocol(commit_message: str, run_full_suite: bool = True) -> str:
+def run_protocol(
+    commit_message: str, run_full_suite: bool = True, push: bool = False
+) -> str:
     """
     Nova Self-Development Protocol Tool.
     Runs tests and commits changes only if tests pass.
@@ -12,6 +14,7 @@ def run_protocol(commit_message: str, run_full_suite: bool = True) -> str:
     Args:
         commit_message: The git commit message.
         run_full_suite: Whether to run the full test suite (pytest).
+        push: Whether to push the changes after successful commit.
 
     Returns:
         A report of the protocol execution.
@@ -84,7 +87,16 @@ def run_protocol(commit_message: str, run_full_suite: bool = True) -> str:
         return f"Error committing: {str(e)}"
 
     report.append("\n**PROTOCOL COMPLETED SUCCESSFULLY.**")
-    report.append("Handing off to Nova for push/deployment management.")
+
+    if push:
+        report.append("- Pushing changes to GitHub...")
+        from nova.tools.github_tools import push_to_github
+
+        # We skip_tests here because they already passed in step 1
+        push_report = push_to_github(commit_message=commit_message, skip_tests=True)
+        report.append(f"  {push_report}")
+    else:
+        report.append("Handing off to Nova for push/deployment management.")
 
     return "\n".join(report)
 

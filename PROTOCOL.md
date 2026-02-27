@@ -29,9 +29,11 @@ Nova should use the `dev_protocol.py` tool for all commits.
 # Example usage within Nova
 from nova.tools.dev_protocol import run_protocol
 
+# Commit and Push (Deploy) only if tests pass
 result = run_protocol(
     commit_message="feat: add advanced task prioritization",
-    run_full_suite=True
+    run_full_suite=True,
+    push=True
 )
 ```
 
