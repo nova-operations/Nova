@@ -355,9 +355,8 @@ async def handle_message(
             text="I'm currently processing your previous request. I've noted this and will address it immediately after! 🛰️",
         )
 
-    async with lock:
-        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-        await process_nova_intent(chat_id, user_id, user_message)
+    # Call the core intent processor (which handles its own locking)
+    await process_nova_intent(chat_id, user_id, user_message)
 
 
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE):
