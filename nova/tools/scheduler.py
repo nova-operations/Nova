@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 import enum
 from croniter import croniter
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
@@ -438,7 +439,10 @@ def add_scheduled_task(
         # Add to scheduler
         scheduler = get_scheduler()
         scheduler.add_job(
-            _job_executor, "cron", cron=schedule, id=str(task.id), replace_existing=True
+            _job_executor,
+            trigger=CronTrigger.from_crontab(schedule),
+            id=str(task.id),
+            replace_existing=True,
         )
 
         logger.info(f"Added scheduled task: {task_name}")
@@ -585,8 +589,7 @@ def update_scheduled_task(
         if task.status == TaskStatus.ACTIVE:
             scheduler.add_job(
                 _job_executor,
-                "cron",
-                cron=task.schedule,
+                trigger=CronTrigger.from_crontab(task.schedule),
                 id=str(task.id),
                 replace_existing=True,
             )
@@ -687,8 +690,7 @@ def resume_scheduled_task(task_name: str) -> str:
         scheduler = get_scheduler()
         scheduler.add_job(
             _job_executor,
-            "cron",
-            cron=task.schedule,
+            trigger=CronTrigger.from_crontab(task.schedule),
             id=str(task.id),
             replace_existing=True,
         )
@@ -756,8 +758,7 @@ def start_scheduler() -> str:
             for task in active_tasks:
                 scheduler.add_job(
                     _job_executor,
-                    "cron",
-                    cron=task.schedule,
+                    trigger=CronTrigger.from_crontab(task.schedule),
                     id=str(task.id),
                     replace_existing=True,
                 )

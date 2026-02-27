@@ -392,11 +392,17 @@ async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE):
 async def post_init(application):
     """Callback to run after the bot starts and the loop is running."""
     from nova.tools.scheduler import initialize_scheduler
+    from nova.tools.error_bus import start_error_bus
 
     try:
         initialize_scheduler()
     except Exception:
         pass
+
+    try:
+        start_error_bus()
+    except Exception as e:
+        print(f"Failed to start error bus: {e}")
 
     monitor = get_heartbeat_monitor()
 
