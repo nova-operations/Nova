@@ -146,15 +146,17 @@ The header format is: [SAU: {team_name}]
                     SUBAGENTS[subagent_id]["result"] = response.content
 
                     await stream.send("Team task completed successfully!")
-
+                    
                 except Exception as e:
-                    error_msg = str(e)
                     SUBAGENTS[subagent_id]["status"] = "failed"
-                    SUBAGENTS[subagent_id]["result"] = f"Error: {error_msg}"
+                    SUBAGENTS[subagent_id]["result"] = str(e)
+                    await stream.send(f"Team task failed: {str(e)}", msg_type="error")
+                    
+                    # PROACTIVE RECOVERY: Wake up Nova
+                    if chat_id:
+                        from nova.telegram_bot import reinvigorate_nova
+                        asyncio.create_task(reinvigorate_nova(chat_id, f"Team '{task_name}' failed: {str(e)}"))
 
-                    await stream.send(
-                        f"Team task failed: {error_msg}", msg_type="error"
-                    )
 
         if chat_id:
             # Send minimal notification that team is starting

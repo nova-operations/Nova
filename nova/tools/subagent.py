@@ -156,6 +156,11 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             await stream.send(f"Task failed: {str(e)}", msg_type="error")
             logging.error(f"Subagent {subagent_id} failed: {e}")
 
+            # PROACTIVE RECOVERY: Wake up Nova to handle the failure
+            if chat_id:
+                from nova.telegram_bot import reinvigorate_nova
+                asyncio.create_task(reinvigorate_nova(chat_id, f"Subagent '{name}' failed with error: {str(e)}"))
+
     # REMOVED: Final notification block
     # The StreamingContext now handles all completion messaging automatically
     # Each line of output has already been streamed - no need for additional messages

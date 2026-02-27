@@ -207,50 +207,68 @@ def get_prompt_transformer() -> MiddleOutTransformer:
     return _prompt_transformer
 
 
-async def get_reply_context(update: Update) -> str:
-    """
-    Extract reply context from the incoming update.
-    Returns:
-        A string with the reply context, or empty string if no reply.
-    """
-    if not update.message or not update.message.reply_to_message:
-        return ""
-
-    replied_msg = update.message.reply_to_message
-
-    # Get the text content of the original message
-    original_text = ""
-    if replied_msg.text:
-        original_text = replied_msg.text
-    elif replied_msg.caption:
-        original_text = replied_msg.caption
-
-    if not original_text:
-        # Try to get content from other message types
-        if hasattr(replied_msg, "document") and replied_msg.document:
-            original_text = f"[Document: {replied_msg.document.file_name}]"
-        elif hasattr(replied_msg, "photo") and replied_msg.photo:
-            original_text = "[Photo message]"
-        elif hasattr(replied_msg, "voice") and replied_msg.voice:
-            original_text = "[Voice message]"
-        elif hasattr(replied_msg, "audio") and replied_msg.audio:
-            original_text = f"[Audio: {replied_msg.audio.title or 'Unknown'}]"
-
-    if not original_text:
-        return ""
-
-    # Get message ID for reference
-    msg_id = replied_msg.message_id
-
-    # Build the context string
-    context = f"""REPLY CONTEXT:
-You are replying to message ID {msg_id}:
----
-{original_text[:1000]}
----
-
-"""
     return context
+
+
+async def reinvigorate_nova(chat_id: str, message: str):
+    """
+    Internal 'wake up' mechanism for Nova.
+    This allows subagents or background tasks to re-engage Nova proactively.
+    """
+    global telegram_bot_instance
+    if not telegram_bot_instance:
+        return
+
+    cid = int(chat_id)
+    if cid not in _PROCESSING_LOCKS:
+        _PROCESSING_LOCKS[cid] = asyncio.Lock()
+    
+    lock = _PROCESSING_LOCKS[cid]
+    
+    # System-triggered message
+    system_prompt = f"[INTERNAL SYSTEM ALERT]\nA background task has produced the following result/failure:\n---\n{message}\n---\nNova, analyze this background event and decide if you need to take proactive action (e.g. fix a failure, delegate a recovery task, or notify the user)."
+    
+    # Get user id for session tracking
+    whitelist_str = os.getenv("TELEGRAM_USER_WHITELIST", "")
+    if not whitelist_str:
+        return
+    user_id = int(whitelist_str.split(",")[0].strip())
+
+    # Trigger a new run in the background
+    asyncio.create_task(process_nova_intent(cid, user_id, system_prompt))
+
+async def process_nova_intent(chat_id: int, user_id: int, message: str):
+    """Core logic to run a Nova iteration without requiring a Telegram Update object."""
+    if chat_id not in _PROCESSING_LOCKS:
+        _PROCESSING_LOCKS[chat_id] = asyncio.Lock()
+    
+    lock = _PROCESSING_LOCKS[chat_id]
+    
+    async with lock:
+        global telegram_bot_instance
+        if telegram_bot_instance:
+            await telegram_bot_instance.send_chat_action(chat_id=chat_id, action="typing")
+        
+        try:
+            agent = get_agent(chat_id=str(chat_id))
+            session_id = str(user_id)
+            
+            # Subagent monitoring
+            from nova.tools.subagent import SUBAGENTS as ACTIVE_SUBAGENTS
+            active_subs = [s["name"] for s in ACTIVE_SUBAGENTS.values() if s.get("chat_id") == str(chat_id) and s.get("status") == "running"]
+            if active_subs:
+                message = f"[SYSTEM NOTE: You have active subagents running: {', '.join(active_subs)}]\n{message}"
+
+            response = await agent.arun(message, session_id=session_id)
+
+            if response and response.content and telegram_bot_instance:
+                await send_message_with_fallback(
+                    telegram_bot_instance, chat_id, response.content, title="Nova Response"
+                )
+        except Exception as e:
+            logging.error(f"Error in process_nova_intent: {e}")
+
+
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, override_text: str = None):
@@ -290,40 +308,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, ove
 
     async with lock:
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-
-        try:
-            agent = get_agent(chat_id=str(chat_id))
-
-            # Inject a note about current active tasks if any exist
-            from nova.tools.subagent import SUBAGENTS as ACTIVE_SUBAGENTS
-
-            active_subs = [
-                s["name"]
-                for s in ACTIVE_SUBAGENTS.values()
-                if s.get("chat_id") == str(chat_id) and s.get("status") == "running"
-            ]
-            if active_subs:
-                user_message = f"[SYSTEM NOTE: You have active subagents running: {', '.join(active_subs)}]\n{user_message}"
-
-            response = await agent.arun(user_message, session_id=session_id)
-
-            if response and response.content:
-                await send_message_with_fallback(
-                    context.bot, chat_id, response.content, title="Nova Response"
-                )
-            else:
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text="I have processed your request, but have no specific update to share yet.",
-                )
-
-        except Exception as e:
-            error_msg = str(e)
-            logging.error(f"Error running agent: {error_msg}")
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"I encountered a slight hiccup: {error_msg[:200]}... I'm still here!",
-            )
+        await process_nova_intent(chat_id, user_id, user_message)
 
 
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE):
