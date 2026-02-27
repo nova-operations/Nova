@@ -48,6 +48,7 @@ class ErrorBusHandler(logging.Handler):
         if record.name in (
             "nova.tools.error_bus",
             "nova.tools.subagent",
+            "nova.tools.scheduler",
             "httpx",
             "telegram",
             "agno",

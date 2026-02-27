@@ -22,7 +22,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Enum, JSON
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Enum, JSON, text
 from sqlalchemy.orm import sessionmaker
 from nova.db.base import Base
 from nova.db.engine import get_db_engine, get_session_factory
@@ -94,7 +94,66 @@ def get_session():
 
 # Global scheduler instance
 _scheduler: Optional[AsyncIOScheduler] = None
-_job_stores: Dict[str, Any] = {}
+_scheduler_initialized: bool = False
+
+
+def _cleanup_all_orphaned_jobs():
+    """
+    Clean up all orphaned APScheduler jobs that have no corresponding DB record.
+    This is called automatically on scheduler initialization to prevent stale job errors.
+    """
+    global _scheduler_initialized
+    if _scheduler_initialized:
+        return
+    
+    try:
+        db = get_session()
+        engine = get_db_engine()
+        scheduler = get_scheduler()
+        
+        try:
+            # Get job IDs directly from the database table (not in-memory)
+            with engine.connect() as conn:
+                result = conn.execute(text('SELECT id FROM apscheduler_jobs'))
+                apscheduler_job_ids = {row[0] for row in result.fetchall()}
+            
+            # Get all task IDs from DB (including active and paused)
+            db_tasks = db.query(ScheduledTask).all()
+            db_task_ids = {str(task.id) for task in db_tasks}
+            
+            # Also handle manual trigger jobs (prefixed with "manual_")
+            db_task_ids.update({f"manual_{t.id}" for t in db_tasks})
+            
+            # Find orphaned jobs (in APScheduler but not in DB)
+            orphaned_jobs = apscheduler_job_ids - db_task_ids
+            
+            # Remove orphaned jobs directly from the database table
+            for job_id in orphaned_jobs:
+                try:
+                    # Remove from in-memory scheduler if loaded
+                    scheduler.remove_job(job_id)
+                except Exception as e:
+                    # Job might not be loaded in memory, that's ok
+                    pass
+                    
+                # Always try to remove from the database table
+                try:
+                    with engine.connect() as conn:
+                        conn.execute(text('DELETE FROM apscheduler_jobs WHERE id = :id'), {'id': job_id})
+                        conn.commit()
+                    logger.info(f"Cleaned up orphaned APScheduler job: {job_id}")
+                except Exception as e:
+                    logger.debug(f"Failed to remove job {job_id} from DB: {e}")
+                    
+        finally:
+            db.close()
+            
+        _scheduler_initialized = True
+        
+    except Exception as e:
+        logger.warning(f"Failed to cleanup orphaned jobs during init: {e}")
+        # Still mark as initialized to prevent infinite retry
+        _scheduler_initialized = True
 
 
 def get_scheduler() -> AsyncIOScheduler:
@@ -125,6 +184,9 @@ def get_scheduler() -> AsyncIOScheduler:
         },
         timezone="UTC",
     )
+
+    # Clean up orphaned jobs on first scheduler creation
+    _cleanup_all_orphaned_jobs()
 
     return _scheduler
 
@@ -279,6 +341,25 @@ async def _execute_alert_task(job_id: int, alert_message: str):
     return "success", f"Alert sent: {alert_message}"
 
 
+def _cleanup_orphaned_job(job_id: str):
+    """Remove an orphaned APScheduler job that has no corresponding DB task."""
+    try:
+        scheduler = get_scheduler()
+        scheduler.remove_job(job_id)
+        logger.info(f"Cleaned up orphaned APScheduler job: {job_id}")
+    except Exception as e:
+        logger.debug(f"Job {job_id} already removed or not found: {e}")
+    
+    # Also remove from database table directly
+    try:
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            conn.execute(text('DELETE FROM apscheduler_jobs WHERE id = :id'), {'id': job_id})
+            conn.commit()
+    except Exception as e:
+        logger.debug(f"Failed to remove job {job_id} from DB table: {e}")
+
+
 async def _job_executor(job_id: int):
     """Main job executor that dispatches to the appropriate handler."""
     # Get job data from database
@@ -288,7 +369,10 @@ async def _job_executor(job_id: int):
         task = db.query(ScheduledTask).filter(ScheduledTask.id == job_id).first()
 
         if not task:
-            logger.error(f"Task not found in DB: {job_id}")
+            # Task not found in DB - this is an orphaned job in APScheduler
+            # Clean it up to prevent future errors
+            logger.debug(f"Task not found in DB: {job_id}. Cleaning up orphaned APScheduler job.")
+            _cleanup_orphaned_job(str(job_id))
             return
 
         if task.status != TaskStatus.ACTIVE:
@@ -778,6 +862,85 @@ def run_scheduled_task_now(task_name: str) -> str:
         db.close()
 
 
+def sync_scheduler_with_db() -> str:
+    """
+    Synchronize APScheduler jobs with the database.
+    Removes orphaned jobs that no longer have corresponding DB records.
+    """
+    scheduler = get_scheduler()
+    db = get_session()
+    engine = get_db_engine()
+    
+    try:
+        # Get all APScheduler jobs directly from the database table
+        with engine.connect() as conn:
+            result = conn.execute(text('SELECT id FROM apscheduler_jobs'))
+            apscheduler_job_ids = {row[0] for row in result.fetchall()}
+        
+        # Get ALL tasks from DB (active and paused) for orphaned job detection
+        all_tasks = db.query(ScheduledTask).all()
+        all_task_ids = {str(task.id) for task in all_tasks}
+        
+        # Also handle manual trigger jobs (prefixed with "manual_")
+        all_task_ids.update({f"manual_{t.id}" for t in all_tasks})
+        
+        # Get only active tasks for missing job addition
+        active_tasks = db.query(ScheduledTask).filter(
+            ScheduledTask.status == TaskStatus.ACTIVE
+        ).all()
+        active_task_ids = {str(task.id) for task in active_tasks}
+        
+        # Find orphaned jobs (in APScheduler but not in DB)
+        orphaned_jobs = apscheduler_job_ids - all_task_ids
+        
+        # Find missing jobs (in DB but not in APScheduler) - only active ones
+        missing_jobs = active_task_ids - apscheduler_job_ids
+        
+        # Remove orphaned jobs
+        removed_count = 0
+        for job_id in orphaned_jobs:
+            try:
+                # Remove from in-memory scheduler if loaded
+                scheduler.remove_job(job_id)
+            except Exception as e:
+                pass  # Job might not be in memory
+                
+            # Remove from database table
+            try:
+                with engine.connect() as conn:
+                    conn.execute(text('DELETE FROM apscheduler_jobs WHERE id = :id'), {'id': job_id})
+                    conn.commit()
+                logger.info(f"Removed orphaned job: {job_id}")
+                removed_count += 1
+            except Exception as e:
+                logger.debug(f"Failed to remove job {job_id}: {e}")
+        
+        # Add missing jobs
+        added_count = 0
+        for task in active_tasks:
+            if str(task.id) in missing_jobs:
+                try:
+                    scheduler.add_job(
+                        _job_executor,
+                        trigger=CronTrigger.from_crontab(task.schedule),
+                        id=str(task.id),
+                        args=[task.id],
+                        replace_existing=True,
+                    )
+                    logger.info(f"Added missing job for task: {task.task_name}")
+                    added_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to add job for task {task.task_name}: {e}")
+        
+        return f"✅ Sync complete. Removed {removed_count} orphaned jobs, added {added_count} missing jobs."
+        
+    except Exception as e:
+        logger.error(f"Scheduler sync failed: {e}")
+        return f"Error during sync: {e}"
+    finally:
+        db.close()
+
+
 def start_scheduler() -> str:
     """Start the scheduler background service."""
     try:
@@ -786,14 +949,17 @@ def start_scheduler() -> str:
 
         run_migrations()
 
-        # Get scheduler
+        # Get scheduler (this triggers cleanup of orphaned jobs)
         scheduler = get_scheduler()
 
         if scheduler.running:
             return "Scheduler is already running."
 
-        # Add existing active tasks from database
+        # Sync scheduler with database first (cleanup orphaned jobs)
+        sync_result = sync_scheduler_with_db()
+        logger.info(f"Scheduler sync: {sync_result}")
 
+        # Add existing active tasks from database
         db = get_session()
 
         try:
