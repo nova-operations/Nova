@@ -49,22 +49,42 @@ async def test_handle_message_auth_failed(mock_update, mock_context):
 @pytest.mark.asyncio
 async def test_handle_multimodal_voice(mock_update, mock_context):
     mock_update.message.voice = MagicMock(file_id="voice123")
+
+    # Mock bot.get_file and its download method
+    mock_file = AsyncMock()
+    mock_file.download_as_bytearray = AsyncMock(
+        return_value=bytearray(b"fake audio data")
+    )
+    mock_context.bot.get_file = AsyncMock(return_value=mock_file)
+
     with patch("nova.telegram_bot.is_authorized", return_value=True):
         with patch(
             "nova.telegram_bot.handle_message", new_callable=AsyncMock
         ) as mock_hm:
             await handle_multimodal(mock_update, mock_context)
             assert mock_hm.called
-            assert "VOICE/AUDIO MESSAGE" in mock_hm.call_args[1]["override_text"]
+            assert "Process this audio" in mock_hm.call_args[1]["override_text"]
+            assert "audio" in mock_hm.call_args[1]
+            assert len(mock_hm.call_args[1]["audio"]) == 1
 
 
 @pytest.mark.asyncio
 async def test_handle_multimodal_photo(mock_update, mock_context):
     mock_update.message.photo = [MagicMock(file_id="photo123")]
+
+    # Mock bot.get_file and its download method
+    mock_file = AsyncMock()
+    mock_file.download_as_bytearray = AsyncMock(
+        return_value=bytearray(b"fake photo data")
+    )
+    mock_context.bot.get_file = AsyncMock(return_value=mock_file)
+
     with patch("nova.telegram_bot.is_authorized", return_value=True):
         with patch(
             "nova.telegram_bot.handle_message", new_callable=AsyncMock
         ) as mock_hm:
             await handle_multimodal(mock_update, mock_context)
             assert mock_hm.called
-            assert "PHOTO" in mock_hm.call_args[1]["override_text"]
+            assert "Analyze this photo" in mock_hm.call_args[1]["override_text"]
+            assert "images" in mock_hm.call_args[1]
+            assert len(mock_hm.call_args[1]["images"]) == 1

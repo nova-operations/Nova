@@ -7,11 +7,12 @@ subagents and handling user requests.
 
 import os
 import asyncio
-from typing import Optional
+from typing import Optional, List, Any
 from datetime import timedelta
 from dotenv import load_dotenv
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
+from agno.media import Audio, Image
 from agno.skills import Skills, LocalSkills
 from nova.db.engine import get_agno_db
 
@@ -173,7 +174,14 @@ class ContextCompressedAgent(Agent):
         )
         super().__init__(*args, **kwargs)
 
-    async def arun(self, message: str, session_id: Optional[str] = None, **kwargs):
+    async def arun(
+        self,
+        message: str,
+        session_id: Optional[str] = None,
+        images: Optional[List[Image]] = None,
+        audio: Optional[List[Audio]] = None,
+        **kwargs,
+    ):
         """
         Override arun to apply context compression if needed.
 
@@ -181,14 +189,18 @@ class ContextCompressedAgent(Agent):
         middle-out transformation if it exceeds the token limit.
         """
         if not self._context_compression_enabled:
-            return await super().arun(message, session_id=session_id, **kwargs)
+            return await super().arun(
+                message, session_id=session_id, images=images, audio=audio, **kwargs
+            )
 
         # Build the full prompt (similar to how Agno builds it internally)
         # We need to check the size of what will be sent to the LLM
 
         try:
             # Run the parent method but catch context length errors
-            response = await super().arun(message, session_id=session_id, **kwargs)
+            response = await super().arun(
+                message, session_id=session_id, images=images, audio=audio, **kwargs
+            )
             return response
         except Exception as e:
             error_msg = str(e)
@@ -212,7 +224,9 @@ class ContextCompressedAgent(Agent):
                 await self._apply_context_compression(session_id)
 
                 # Retry with compressed context
-                response = await super().arun(message, session_id=session_id, **kwargs)
+                response = await super().arun(
+                    message, session_id=session_id, images=images, audio=audio, **kwargs
+                )
                 return response
             else:
                 # Re-raise non-context errors

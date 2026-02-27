@@ -15,6 +15,7 @@ from nova.agent import get_agent
 from nova.logger import setup_logging
 from nova.tools.heartbeat import get_heartbeat_monitor
 from nova.tools.subagent import SUBAGENTS
+from agno.media import Audio, Image
 
 # Import the middle-out transformer for explicit prompt compression
 from nova.tools.prompt_transformer import (
@@ -87,27 +88,20 @@ async def handle_multimodal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             # Download file
             new_file = await context.bot.get_file(audio_obj.file_id)
-            with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tf:
-                await new_file.download_to_drive(tf.name)
-                temp_path = tf.name
+            audio_bytes = await new_file.download_as_bytearray()
 
-            # Transcribe via Groq/Whisper (High Speed)
-            # This is a conceptual integration; the agent will naturally use its transcription tools or prompt itself
-            context_text = (
-                f"[VOICE/AUDIO MESSAGE RECEIVED: Processing transcription...]"
+            # Create Agno Audio object
+            audio_media = Audio(
+                content=bytes(audio_bytes), format="ogg" if message.voice else "mp3"
             )
 
-            # Since we want the agent to handle it, we'll pass the intent to handle_message
-            # as a system-wrapped prompt for the LLM to process via tools
+            # Pass to Nova natively
             await handle_message(
                 update,
                 context,
-                override_text=f"[USER SENT A VOICE/AUDIO MESSAGE. Action: Retrieve file {audio_obj.file_id} and transcribe/process it.]",
+                override_text=f"[USER SENT A VOICE/AUDIO MESSAGE. Action: Process this audio and respond accordingly.]",
+                audio=[audio_media],
             )
-
-            # Clean up
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
             return
 
         except Exception as e:
@@ -122,10 +116,17 @@ async def handle_multimodal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if message.photo:
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
         photo = message.photo[-1]  # Highest resolution
+        new_file = await context.bot.get_file(photo.file_id)
+        photo_bytes = await new_file.download_as_bytearray()
+
+        # Create Agno Image object
+        image_media = Image(content=bytes(photo_bytes))
+
         await handle_message(
             update,
             context,
-            override_text=f"[USER SENT A PHOTO. Action: Analyze photo ID {photo.file_id} and respond to any visible content or instructions.]",
+            override_text=f"[USER SENT A PHOTO. Action: Analyze this photo and respond to any visible content or instructions.]",
+            images=[image_media],
         )
         return
 
@@ -242,7 +243,12 @@ async def get_reply_context(update: Update) -> str:
     return context
 
 
-async def reinvigorate_nova(chat_id: str, message: str):
+async def reinvigorate_nova(
+    chat_id: str,
+    message: str,
+    images: Optional[List[Image]] = None,
+    audio: Optional[List[Audio]] = None,
+):
     """
     Internal 'wake up' mechanism for Nova.
     This allows subagents or background tasks to re-engage Nova proactively.
@@ -267,10 +273,18 @@ async def reinvigorate_nova(chat_id: str, message: str):
     user_id = int(whitelist_str.split(",")[0].strip())
 
     # Trigger a new run in the background
-    asyncio.create_task(process_nova_intent(cid, user_id, system_prompt))
+    asyncio.create_task(
+        process_nova_intent(cid, user_id, system_prompt, images=images, audio=audio)
+    )
 
 
-async def process_nova_intent(chat_id: int, user_id: int, message: str):
+async def process_nova_intent(
+    chat_id: int,
+    user_id: int,
+    message: str,
+    images: Optional[List[Image]] = None,
+    audio: Optional[List[Audio]] = None,
+):
     """Core logic to run a Nova iteration without requiring a Telegram Update object."""
     if chat_id not in _PROCESSING_LOCKS:
         _PROCESSING_LOCKS[chat_id] = asyncio.Lock()
@@ -299,7 +313,9 @@ async def process_nova_intent(chat_id: int, user_id: int, message: str):
             if active_subs:
                 message = f"[SYSTEM NOTE: You have active subagents running: {', '.join(active_subs)}]\n{message}"
 
-            response = await agent.arun(message, session_id=session_id)
+            response = await agent.arun(
+                message, session_id=session_id, images=images, audio=audio
+            )
 
             if response and response.content and telegram_bot_instance:
                 await send_message_with_fallback(
@@ -319,7 +335,11 @@ async def process_nova_intent(chat_id: int, user_id: int, message: str):
 
 
 async def handle_message(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, override_text: str = None
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    override_text: str = None,
+    images: Optional[List[Image]] = None,
+    audio: Optional[List[Audio]] = None,
 ):
     user_id = update.effective_user.id
     if not is_authorized(user_id):
@@ -356,7 +376,9 @@ async def handle_message(
         )
 
     # Call the core intent processor (which handles its own locking)
-    await process_nova_intent(chat_id, user_id, user_message)
+    await process_nova_intent(
+        chat_id, user_id, user_message, images=images, audio=audio
+    )
 
 
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE):
