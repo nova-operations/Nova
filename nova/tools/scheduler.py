@@ -6,13 +6,13 @@ Provides DB-backed scheduling for:
 - Subagent recalls
 - Silent background tasks
 
-Supports notification via Telegram and full CRUD operations.
+Supports notification via Telegram Webhooks and full CRUD operations.
 """
 
 import os
 import asyncio
 import logging
-import subprocess
+import httpx
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 import enum
@@ -193,10 +193,7 @@ def get_scheduler() -> AsyncIOScheduler:
 
 
 async def _send_telegram_notification(message: str, chat_id: Optional[str] = None):
-    """Send notification via Telegram."""
-    from telegram import Bot
-    from telegram.error import TelegramError
-
+    """Send notification via Telegram API Webhook."""
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     default_chat_id = os.getenv("TELEGRAM_CHAT_ID")
     target_chat_id = chat_id or default_chat_id
@@ -205,10 +202,19 @@ async def _send_telegram_notification(message: str, chat_id: Optional[str] = Non
         logger.error(f"Telegram credentials missing. Chat ID: {target_chat_id}")
         return
 
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {
+        "chat_id": str(target_chat_id),
+        "text": message
+    }
+
     try:
-        bot = Bot(token=token)
-        await bot.send_message(text=message, chat_id=target_chat_id)
-        logger.info(f"Successfully sent notification to chat {target_chat_id}")
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, timeout=10.0)
+            if response.status_code == 200:
+                logger.info(f"Successfully sent notification to chat {target_chat_id}")
+            else:
+                logger.error(f"Telegram API failed: {response.text}")
     except Exception as e:
         logger.error(f"Failed to send telegram notification to {target_chat_id}: {e}")
 
@@ -257,8 +263,7 @@ async def _execute_subagent_recall(
         # Import here to avoid circular imports
         from nova.tools.subagent import create_subagent
 
-        # Create subagent synchronously
-        # Fix: Pass chat_id to subagent if available
+        # Create subagent asynchronously
         result = await create_subagent(
             name=subagent_name, 
             instructions=subagent_instructions, 
@@ -270,7 +275,6 @@ async def _execute_subagent_recall(
             return "failure", result
 
         # For recall tasks, we don't wait for the subagent to complete
-        # We just trigger it and return
         notification_msg = (
             f"🚀 Subagent '{subagent_name}' triggered by scheduled task (ID: {job_id})"
         )
