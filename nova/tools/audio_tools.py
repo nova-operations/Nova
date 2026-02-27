@@ -18,13 +18,14 @@ AUDIO_DIR = Path("data/audio")
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 # Edge TTS voices - Microsoft's free TTS service
+# Updated to use currently available voices
 EDGE_VOICES = {
     "alloy": "en-US-AriaNeural",      # Similar to OpenAI's alloy
     "echo": "en-US-GuyNeural",        # Similar to OpenAI's echo  
-    "fable": "en-US-SaraNeural",      # Similar to OpenAI's fable
-    "onyx": "en-US-JacobNeural",      # Similar to OpenAI's onyx
+    "fable": "en-US-EmmaNeural",      # Similar to OpenAI's fable
+    "onyx": "en-US-BrianNeural",      # Similar to OpenAI's onyx (deep male voice)
     "nova": "en-US-JennyNeural",      # Similar to OpenAI's nova
-    "shimmer": "en-US-AmberNeural",   # Similar to OpenAI's shimmer
+    "shimmer": "en-US-EmmaNeural",    # Similar to OpenAI's shimmer
 }
 
 # Default voice
