@@ -99,7 +99,7 @@ async def handle_multimodal(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await handle_message(
                 update,
                 context,
-                override_text=f"[USER SENT A VOICE/AUDIO MESSAGE. Action: Process this audio and respond accordingly.]",
+                override_text=f"(User sent a voice message. Please listen to the audio and respond.)",
                 audio=[audio_media],
             )
             return
@@ -125,7 +125,7 @@ async def handle_multimodal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_message(
             update,
             context,
-            override_text=f"[USER SENT A PHOTO. Action: Analyze this photo and respond to any visible content or instructions.]",
+            override_text=f"(User sent a photo. Please analyze the image and respond.)",
             images=[image_media],
         )
         return

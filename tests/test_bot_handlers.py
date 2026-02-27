@@ -63,7 +63,7 @@ async def test_handle_multimodal_voice(mock_update, mock_context):
         ) as mock_hm:
             await handle_multimodal(mock_update, mock_context)
             assert mock_hm.called
-            assert "Process this audio" in mock_hm.call_args[1]["override_text"]
+            assert "User sent a voice message" in mock_hm.call_args[1]["override_text"]
             assert "audio" in mock_hm.call_args[1]
             assert len(mock_hm.call_args[1]["audio"]) == 1
 
@@ -85,6 +85,6 @@ async def test_handle_multimodal_photo(mock_update, mock_context):
         ) as mock_hm:
             await handle_multimodal(mock_update, mock_context)
             assert mock_hm.called
-            assert "Analyze this photo" in mock_hm.call_args[1]["override_text"]
+            assert "User sent a photo" in mock_hm.call_args[1]["override_text"]
             assert "images" in mock_hm.call_args[1]
             assert len(mock_hm.call_args[1]["images"]) == 1
