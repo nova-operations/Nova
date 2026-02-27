@@ -95,11 +95,10 @@ async def handle_multimodal(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 content=bytes(audio_bytes), format="ogg" if message.voice else "mp3"
             )
 
-            # Pass to Nova natively
+            # Pass to Nova natively without a system prompt
             await handle_message(
                 update,
                 context,
-                override_text=f"(User sent a voice message. Please listen to the audio and respond.)",
                 audio=[audio_media],
             )
             return
@@ -125,7 +124,6 @@ async def handle_multimodal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_message(
             update,
             context,
-            override_text=f"(User sent a photo. Please analyze the image and respond.)",
             images=[image_media],
         )
         return
@@ -348,11 +346,11 @@ async def handle_message(
 
     user_message = override_text if override_text else update.message.text
     # If it's a photo/voice with a caption and no override, use the caption
-    if not user_message and update.message.caption:
+    if not user_message and update.message and update.message.caption:
         user_message = update.message.caption
 
-    if not user_message:
-        # If still no message, it might be a naked media file
+    # Allow processing if we have either text or media
+    if not user_message and not images and not audio:
         return
 
     chat_id = update.effective_chat.id
