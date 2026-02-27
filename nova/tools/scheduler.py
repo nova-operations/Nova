@@ -192,43 +192,21 @@ def get_scheduler() -> AsyncIOScheduler:
     return _scheduler
 
 
-def _get_telegram_bot():
-    """Get telegram bot instance for notifications."""
-    try:
-        from telegram import Bot
-        from telegram.error import TelegramError
-
-        token = os.getenv("TELEGRAM_BOT_TOKEN")
-        chat_id = os.getenv("TELEGRAM_CHAT_ID")
-
-        if not token or not chat_id:
-            logger.debug("Telegram credentials not configured")
-            return None
-
-        # Fix: Construct the bot with better error handling
-        return Bot(token=token), chat_id
-    except ImportError:
-        logger.debug("Telegram not available")
-        return None
-
-
 async def _send_telegram_notification(message: str, chat_id: Optional[str] = None):
     """Send notification via Telegram."""
-    tg = _get_telegram_bot()
-    if not tg:
-        logger.error("Telegram bot instance could not be created for notification.")
-        return
+    from telegram import Bot
+    from telegram.error import TelegramError
 
-    bot, default_chat_id = tg
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    default_chat_id = os.getenv("TELEGRAM_CHAT_ID")
     target_chat_id = chat_id or default_chat_id
 
-    if not target_chat_id:
-        logger.debug("No chat_id configured for notifications")
+    if not token or not target_chat_id:
+        logger.error(f"Telegram credentials missing. Chat ID: {target_chat_id}")
         return
 
     try:
-        # Note: In newer python-telegram-bot, methods are async
-        # We assume the bot instance returned is from the newest version or handled by the wrapper
+        bot = Bot(token=token)
         await bot.send_message(text=message, chat_id=target_chat_id)
         logger.info(f"Successfully sent notification to chat {target_chat_id}")
     except Exception as e:
