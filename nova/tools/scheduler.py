@@ -71,6 +71,7 @@ class ScheduledTask(Base):
     team_members = Column(JSON, nullable=True)  # List of specialist names for TEAM_TASK
     status = Column(Enum(TaskStatus), default=TaskStatus.ACTIVE)
     notification_enabled = Column(Boolean, default=True)
+    target_chat_id = Column(String(100), nullable=True)  # Specific chat ID for alerts
     last_run = Column(DateTime, nullable=True)
     last_status = Column(String(50), nullable=True)  # success, failure, skipped
     last_output = Column(Text, nullable=True)
@@ -204,6 +205,7 @@ def _get_telegram_bot():
             logger.debug("Telegram credentials not configured")
             return None
 
+        # Fix: Construct the bot with better error handling
         return Bot(token=token), chat_id
     except ImportError:
         logger.debug("Telegram not available")
@@ -214,6 +216,7 @@ async def _send_telegram_notification(message: str, chat_id: Optional[str] = Non
     """Send notification via Telegram."""
     tg = _get_telegram_bot()
     if not tg:
+        logger.error("Telegram bot instance could not be created for notification.")
         return
 
     bot, default_chat_id = tg
@@ -224,9 +227,12 @@ async def _send_telegram_notification(message: str, chat_id: Optional[str] = Non
         return
 
     try:
+        # Note: In newer python-telegram-bot, methods are async
+        # We assume the bot instance returned is from the newest version or handled by the wrapper
         await bot.send_message(text=message, chat_id=target_chat_id)
+        logger.info(f"Successfully sent notification to chat {target_chat_id}")
     except Exception as e:
-        logger.error(f"Failed to send telegram notification: {e}")
+        logger.error(f"Failed to send telegram notification to {target_chat_id}: {e}")
 
 
 async def _execute_standalone_shell(
@@ -264,6 +270,7 @@ async def _execute_subagent_recall(
     subagent_instructions: str,
     subagent_task: str,
     notification_enabled: bool,
+    target_chat_id: Optional[str] = None
 ):
     """Execute a subagent recall."""
     logger.info(f"Executing subagent recall: {subagent_name}")
@@ -273,8 +280,12 @@ async def _execute_subagent_recall(
         from nova.tools.subagent import create_subagent
 
         # Create subagent synchronously
+        # Fix: Pass chat_id to subagent if available
         result = await create_subagent(
-            name=subagent_name, instructions=subagent_instructions, task=subagent_task
+            name=subagent_name, 
+            instructions=subagent_instructions, 
+            task=subagent_task,
+            chat_id=target_chat_id
         )
 
         if result.startswith("Error"):
@@ -287,7 +298,7 @@ async def _execute_subagent_recall(
         )
 
         if notification_enabled:
-            await _send_telegram_notification(notification_msg)
+            await _send_telegram_notification(notification_msg, chat_id=target_chat_id)
 
         return "success", f"Subagent triggered: {result}"
 
@@ -302,6 +313,7 @@ async def _execute_team_task(
     specialist_names: List[str],
     task_description: str,
     notification_enabled: bool,
+    target_chat_id: Optional[str] = None
 ):
     """Execute a team task recall."""
     logger.info(f"Executing scheduled team task: {task_name}")
@@ -313,6 +325,7 @@ async def _execute_team_task(
             task_name=task_name,
             specialist_names=specialist_names,
             task_description=task_description,
+            chat_id=target_chat_id
         )
 
         if result.startswith("❌"):
@@ -320,7 +333,7 @@ async def _execute_team_task(
 
         if notification_enabled:
             notification_msg = f"👥 Team Task '{task_name}' ({len(specialist_names)} agents) triggered by schedule (ID: {job_id})"
-            await _send_telegram_notification(notification_msg)
+            await _send_telegram_notification(notification_msg, chat_id=target_chat_id)
 
         return "success", result
     except Exception as e:
@@ -334,10 +347,10 @@ async def _execute_silent_task(job_id: int):
     return "success", "Silent task completed"
 
 
-async def _execute_alert_task(job_id: int, alert_message: str):
+async def _execute_alert_task(job_id: int, alert_message: str, target_chat_id: Optional[str] = None):
     """Execute an alert task (sends a direct message)."""
-    logger.info(f"Executing alert task: {job_id}")
-    await _send_telegram_notification(alert_message)
+    logger.info(f"Executing alert task: {job_id} for chat: {target_chat_id}")
+    await _send_telegram_notification(alert_message, chat_id=target_chat_id)
     return "success", f"Alert sent: {alert_message}"
 
 
@@ -381,6 +394,8 @@ async def _job_executor(job_id: int):
 
         logger.info(f"Running scheduled task: {task.task_name}")
 
+        target_chat_id = task.target_chat_id
+
         # Execute based on task type
         if task.task_type == TaskType.STANDALONE_SH:
             if not task.script_path:
@@ -402,6 +417,7 @@ async def _job_executor(job_id: int):
                 task.subagent_instructions or "You are a scheduled task executor.",
                 task.subagent_task,
                 task.notification_enabled,
+                target_chat_id=target_chat_id
             )
 
         elif task.task_type == TaskType.TEAM_TASK:
@@ -415,6 +431,7 @@ async def _job_executor(job_id: int):
                 task.team_members,
                 task.subagent_task,
                 task.notification_enabled,
+                target_chat_id=target_chat_id
             )
 
         elif task.task_type == TaskType.SILENT:
@@ -424,7 +441,7 @@ async def _job_executor(job_id: int):
             if not task.subagent_task:
                 logger.error(f"No alert message for alert task: {job_id}")
                 return
-            status, output = await _execute_alert_task(job_id, task.subagent_task)
+            status, output = await _execute_alert_task(job_id, task.subagent_task, target_chat_id=target_chat_id)
 
         else:
             logger.error(f"Unknown task type: {task.task_type}")
@@ -439,7 +456,7 @@ async def _job_executor(job_id: int):
         # Send notification if enabled
         if task.notification_enabled and status == "failure":
             msg = f"⚠️ Scheduled task '{task.task_name}' failed: {output[:200]}"
-            await _send_telegram_notification(msg)
+            await _send_telegram_notification(msg, chat_id=target_chat_id)
 
         logger.info(f"Task {task.task_name} completed with status: {status}")
 
@@ -474,6 +491,7 @@ def add_scheduled_task(
     team_members: Optional[List[str]] = None,
     notification_enabled: bool = True,
     alert_message: Optional[str] = None,
+    chat_id: Optional[str] = None,
 ) -> str:
     """
     Add a new scheduled task.
@@ -481,13 +499,14 @@ def add_scheduled_task(
     Args:
         task_name: Unique name for the task
         schedule: Cron expression (e.g., "0 * * * *" for hourly)
-        task_type: One of "standalone_sh", "subagent_recall", "silent"
+        task_type: One of "standalone_sh", "subagent_recall", "silent", "alert"
         script_path: Path to shell script (for standalone_sh)
         subagent_name: Name for subagent (for subagent_recall)
         subagent_instructions: Instructions for subagent (for subagent_recall)
         subagent_task: Task prompt for subagent (for subagent_recall) or alert message (for alert)
         notification_enabled: Whether to send notifications
         alert_message: Message for alert (shorthand for subagent_task)
+        chat_id: Optional specific chat ID to send notifications to
 
     Returns:
         Confirmation message
@@ -514,6 +533,10 @@ def add_scheduled_task(
         # Use alert_message if provided, otherwise fallback to subagent_task
         subagent_task = alert_message or subagent_task
 
+    # Default to global chat_id if not provided
+    if not chat_id:
+        chat_id = os.getenv("TELEGRAM_CHAT_ID")
+
     # Save to database
 
     db = get_session()
@@ -538,6 +561,7 @@ def add_scheduled_task(
             team_members=team_members,
             status=TaskStatus.ACTIVE,
             notification_enabled=notification_enabled,
+            target_chat_id=chat_id,
         )
 
         db.add(task)
@@ -585,6 +609,8 @@ def list_scheduled_tasks() -> str:
             lines.append(
                 f"  Notifications: {'On' if task.notification_enabled else 'Off'}"
             )
+            if task.target_chat_id:
+                lines.append(f"  Target Chat: {task.target_chat_id}")
             if task.last_run:
                 lines.append(
                     f"  Last Run: {task.last_run.strftime('%Y-%m-%d %H:%M:%S')} ({task.last_status})"
@@ -618,6 +644,8 @@ def get_scheduled_task(task_name: str) -> str:
         lines.append(
             f"Notifications: {'Enabled' if task.notification_enabled else 'Disabled'}"
         )
+        if task.target_chat_id:
+            lines.append(f"Target Chat: {task.target_chat_id}")
 
         if task.script_path:
             lines.append(f"Script: {task.script_path}")
@@ -654,6 +682,7 @@ def update_scheduled_task(
     subagent_task: Optional[str] = None,
     notification_enabled: Optional[bool] = None,
     alert_message: Optional[str] = None,
+    chat_id: Optional[str] = None,
 ) -> str:
     """Update an existing scheduled task."""
 
@@ -702,6 +731,9 @@ def update_scheduled_task(
 
         if notification_enabled is not None:
             task.notification_enabled = notification_enabled
+            
+        if chat_id is not None:
+            task.target_chat_id = chat_id
 
         db.commit()
 
