@@ -66,6 +66,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text=f"Hello! I am Nova (User ID: {user_id}). I can run commands, manage files, spawn subagents, and manage scheduled tasks. I now support VOICE, AUDIO, and IMAGE inputs! How can I help you?",
     )
 
+
 async def handle_multimodal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle voice, audio, and photo messages by converting them to text context."""
     user_id = update.effective_user.id
@@ -74,15 +75,15 @@ async def handle_multimodal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.effective_chat.id
     message = update.message
-    
+
     # Placeholder for the final text context
     context_text = ""
-    
+
     # Handle Voice/Audio via Transcription
     if message.voice or message.audio:
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
         audio_obj = message.voice if message.voice else message.audio
-        
+
         try:
             # Download file
             new_file = await context.bot.get_file(audio_obj.file_id)
@@ -92,12 +93,18 @@ async def handle_multimodal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Transcribe via Groq/Whisper (High Speed)
             # This is a conceptual integration; the agent will naturally use its transcription tools or prompt itself
-            context_text = f"[VOICE/AUDIO MESSAGE RECEIVED: Processing transcription...]"
-            
+            context_text = (
+                f"[VOICE/AUDIO MESSAGE RECEIVED: Processing transcription...]"
+            )
+
             # Since we want the agent to handle it, we'll pass the intent to handle_message
             # as a system-wrapped prompt for the LLM to process via tools
-            await handle_message(update, context, override_text=f"[USER SENT A VOICE/AUDIO MESSAGE. Action: Retrieve file {audio_obj.file_id} and transcribe/process it.]")
-            
+            await handle_message(
+                update,
+                context,
+                override_text=f"[USER SENT A VOICE/AUDIO MESSAGE. Action: Retrieve file {audio_obj.file_id} and transcribe/process it.]",
+            )
+
             # Clean up
             if os.path.exists(temp_path):
                 os.remove(temp_path)
@@ -105,15 +112,23 @@ async def handle_multimodal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         except Exception as e:
             logging.error(f"Error processing audio: {e}")
-            await context.bot.send_message(chat_id=chat_id, text="I heard your voice, but I had trouble transcribing it. Checking my systems! 🎙️")
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="I heard your voice, but I had trouble transcribing it. Checking my systems! 🎙️",
+            )
             return
 
     # Handle Photo via Vision Analysis
     if message.photo:
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-        photo = message.photo[-1] # Highest resolution
-        await handle_message(update, context, override_text=f"[USER SENT A PHOTO. Action: Analyze photo ID {photo.file_id} and respond to any visible content or instructions.]")
+        photo = message.photo[-1]  # Highest resolution
+        await handle_message(
+            update,
+            context,
+            override_text=f"[USER SENT A PHOTO. Action: Analyze photo ID {photo.file_id} and respond to any visible content or instructions.]",
+        )
         return
+
 
 async def heartbeat_callback(report: str, records: List[object]):
     """Callback for heartbeat monitor to send updates to relevant Telegram chats."""
@@ -206,22 +221,23 @@ def get_prompt_transformer() -> MiddleOutTransformer:
         _prompt_transformer = MiddleOutTransformer(max_tokens)
     return _prompt_transformer
 
+
 async def get_reply_context(update: Update) -> str:
     """Extract context from the message being replied to."""
     if not update.message or not update.message.reply_to_message:
         return ""
-    
+
     replied_msg = update.message.reply_to_message
     context = "[REPLY CONTEXT]\n"
-    
+
     if replied_msg.from_user:
         context += f"Author: {replied_msg.from_user.first_name}\n"
-        
+
     if replied_msg.text:
         context += f"Message: {replied_msg.text}\n"
     elif replied_msg.caption:
         context += f"Caption: {replied_msg.caption}\n"
-    
+
     context += "---\n"
     return context
 
@@ -238,12 +254,12 @@ async def reinvigorate_nova(chat_id: str, message: str):
     cid = int(chat_id)
     if cid not in _PROCESSING_LOCKS:
         _PROCESSING_LOCKS[cid] = asyncio.Lock()
-    
+
     lock = _PROCESSING_LOCKS[cid]
-    
+
     # System-triggered message
     system_prompt = f"[INTERNAL SYSTEM ALERT]\nA background task has produced the following result/failure:\n---\n{message}\n---\nNova, analyze this background event and decide if you need to take proactive action (e.g. fix a failure, delegate a recovery task, or notify the user)."
-    
+
     # Get user id for session tracking
     whitelist_str = os.getenv("TELEGRAM_USER_WHITELIST", "")
     if not whitelist_str:
@@ -253,25 +269,33 @@ async def reinvigorate_nova(chat_id: str, message: str):
     # Trigger a new run in the background
     asyncio.create_task(process_nova_intent(cid, user_id, system_prompt))
 
+
 async def process_nova_intent(chat_id: int, user_id: int, message: str):
     """Core logic to run a Nova iteration without requiring a Telegram Update object."""
     if chat_id not in _PROCESSING_LOCKS:
         _PROCESSING_LOCKS[chat_id] = asyncio.Lock()
-    
+
     lock = _PROCESSING_LOCKS[chat_id]
-    
+
     async with lock:
         global telegram_bot_instance
         if telegram_bot_instance:
-            await telegram_bot_instance.send_chat_action(chat_id=chat_id, action="typing")
-        
+            await telegram_bot_instance.send_chat_action(
+                chat_id=chat_id, action="typing"
+            )
+
         try:
             agent = get_agent(chat_id=str(chat_id))
             session_id = str(user_id)
-            
+
             # Subagent monitoring
             from nova.tools.subagent import SUBAGENTS as ACTIVE_SUBAGENTS
-            active_subs = [s["name"] for s in ACTIVE_SUBAGENTS.values() if s.get("chat_id") == str(chat_id) and s.get("status") == "running"]
+
+            active_subs = [
+                s["name"]
+                for s in ACTIVE_SUBAGENTS.values()
+                if s.get("chat_id") == str(chat_id) and s.get("status") == "running"
+            ]
             if active_subs:
                 message = f"[SYSTEM NOTE: You have active subagents running: {', '.join(active_subs)}]\n{message}"
 
@@ -279,15 +303,24 @@ async def process_nova_intent(chat_id: int, user_id: int, message: str):
 
             if response and response.content and telegram_bot_instance:
                 await send_message_with_fallback(
-                    telegram_bot_instance, chat_id, response.content, title="Nova Response"
+                    telegram_bot_instance,
+                    chat_id,
+                    response.content,
+                    title="Nova Response",
                 )
         except Exception as e:
             logging.error(f"Error in process_nova_intent: {e}")
+            if telegram_bot_instance:
+                await send_message_with_fallback(
+                    telegram_bot_instance,
+                    chat_id,
+                    f"⚠️ Error: {str(e)}\n\nI'm having trouble processing your request. Please check my logs or try again.",
+                )
 
 
-
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, override_text: str = None):
+async def handle_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, override_text: str = None
+):
     user_id = update.effective_user.id
     if not is_authorized(user_id):
         logging.warning(f"Unauthorized message from user_id: {user_id}")
@@ -297,7 +330,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, ove
     # If it's a photo/voice with a caption and no override, use the caption
     if not user_message and update.message.caption:
         user_message = update.message.caption
-    
+
     if not user_message:
         # If still no message, it might be a naked media file
         return
@@ -340,12 +373,14 @@ async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE):
 async def post_init(application):
     """Callback to run after the bot starts and the loop is running."""
     from nova.tools.scheduler import initialize_scheduler
+
     try:
         initialize_scheduler()
     except Exception:
         pass
 
     monitor = get_heartbeat_monitor()
+
     def hb_wrapper(report, records):
         asyncio.create_task(heartbeat_callback(report, records))
 
@@ -368,20 +403,25 @@ if __name__ == "__main__":
 
     try:
         import nova.telegram_bot
+
         nova.telegram_bot.telegram_bot_instance = application.bot
     except Exception:
         pass
-        
+
     application.add_error_handler(handle_error)
 
     # Handlers
     application.add_handler(CommandHandler("start", start))
-    
+
     # Text Messages
-    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-    
+    application.add_handler(
+        MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message)
+    )
+
     # Voice, Audio, and Photos
-    application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO | filters.PHOTO, handle_multimodal))
+    application.add_handler(
+        MessageHandler(filters.VOICE | filters.AUDIO | filters.PHOTO, handle_multimodal)
+    )
 
     print("Nova Agent Bot is running with MULTIMODAL support (Voice/Photo)...")
     application.run_polling()
