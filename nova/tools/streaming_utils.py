@@ -98,6 +98,39 @@ def strip_all_formatting(text: str) -> str:
     return result
 
 
+def _get_chat_id(chat_id: Optional[str], subagent_name: str = "") -> str:
+    """
+    Safely get the chat_id, ensuring it's always a valid numeric string.
+    
+    This prevents the bug where subagent_name gets passed as chat_id,
+    causing "invalid literal for int()" errors.
+    
+    Args:
+        chat_id: The provided chat_id (may be None or invalid)
+        subagent_name: Name of subagent for logging/debugging
+        
+    Returns:
+        Valid numeric chat_id string
+    """
+    # If chat_id is None or empty, use default
+    if chat_id is None or chat_id == "":
+        logger.debug(f"No chat_id provided for {subagent_name}, using default: {DEFAULT_CHAT_ID}")
+        return DEFAULT_CHAT_ID
+    
+    # Check if chat_id is a valid numeric string
+    chat_id_str = str(chat_id).strip()
+    
+    # Validate it's actually numeric - if not, log warning and use default
+    if not chat_id_str.isdigit():
+        logger.warning(
+            f"Invalid chat_id '{chat_id}' for {subagent_name} - "
+            f"appears to be subagent name. Using default: {DEFAULT_CHAT_ID}"
+        )
+        return DEFAULT_CHAT_ID
+    
+    return chat_id_str
+
+
 def _get_telegram_bot():
     """
     Get the Telegram bot instance with comprehensive fallback handling.
@@ -199,8 +232,8 @@ async def send_live_update(
     Returns:
         True if message sent successfully, False otherwise
     """
-    if chat_id is None:
-        chat_id = DEFAULT_CHAT_ID
+    # CRITICAL FIX: Validate chat_id - never use subagent_name as chat_id
+    chat_id = _get_chat_id(chat_id, subagent_name)
 
     # CRITICAL: Strip ALL formatting before sending
     message = strip_all_formatting(message)
@@ -208,8 +241,8 @@ async def send_live_update(
     # Format with minimal header - just name in brackets
     header = STREAM_HEADER.format(name=subagent_name)
 
-    # Minimal conversational format - no emojis, just clean identifier
-    # [AgentName] message flows naturally like a conversation
+    # Clean conversational format - no bulky prefixes
+    # Just "[Name] message" flows naturally like a conversation
     formatted_message = f"{header} {message}"
 
     try:
@@ -264,7 +297,7 @@ async def send_streaming_progress(
     Send a PROGRESS update in REAL-TIME mode.
     
     Each progress update is sent IMMEDIATELY as it happens.
-    No batching - user sees each thought as it occurs.
+    No batching - user sees each thought as they occur.
     """
     if not REAL_TIME_MODE:
         # Fallback to batched if ever disabled
@@ -331,7 +364,8 @@ class StreamingContext:
     def __init__(
         self, chat_id: Optional[str], subagent_name: str, auto_complete: bool = True
     ):
-        self.chat_id = chat_id
+        # Validate chat_id on initialization
+        self.chat_id = _get_chat_id(chat_id, subagent_name)
         self.subagent_name = subagent_name
         self.auto_complete = auto_complete
         self._entered = False
@@ -399,4 +433,5 @@ __all__ = [
     "STREAM_HEADER",
     "strip_all_formatting",
     "REAL_TIME_MODE",
+    "_get_chat_id",  # Export for testing
 ]
