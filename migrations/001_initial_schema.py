@@ -72,6 +72,18 @@ def run_migrations():
             except Exception as e:
                 print(f"Failed to add team_members column: {e}")
 
+        if "status" not in columns:
+            print("Adding 'status' column to 'scheduled_tasks'...")
+            try:
+                with engine.begin() as conn:
+                    # Default is ACTIVE
+                    conn.execute(
+                        text("ALTER TABLE scheduled_tasks ADD COLUMN status VARCHAR(20) DEFAULT 'active'")
+                    )
+                print("Added 'status' column.")
+            except Exception as e:
+                print(f"Failed to add status column: {e}")
+
     # 4. Add deployment_pending column to active_tasks if not exists
     # (for tracking when deployment should wait for task)
     if "active_tasks" in tables:

@@ -206,7 +206,23 @@ def get_prompt_transformer() -> MiddleOutTransformer:
         _prompt_transformer = MiddleOutTransformer(max_tokens)
     return _prompt_transformer
 
-
+async def get_reply_context(update: Update) -> str:
+    """Extract context from the message being replied to."""
+    if not update.message or not update.message.reply_to_message:
+        return ""
+    
+    replied_msg = update.message.reply_to_message
+    context = "[REPLY CONTEXT]\n"
+    
+    if replied_msg.from_user:
+        context += f"Author: {replied_msg.from_user.first_name}\n"
+        
+    if replied_msg.text:
+        context += f"Message: {replied_msg.text}\n"
+    elif replied_msg.caption:
+        context += f"Caption: {replied_msg.caption}\n"
+    
+    context += "---\n"
     return context
 
 
