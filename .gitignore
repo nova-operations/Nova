@@ -135,5 +135,5 @@ cython_debug/
 .DS_Store
 
 # Project specific
-nova_memory.db
+*.db
 data/
