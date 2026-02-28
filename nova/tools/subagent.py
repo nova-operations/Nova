@@ -38,7 +38,7 @@ from nova.tools.context_optimizer import (
     get_context_optimizer,
     CHAR_LIMIT_HIGH,
     CHAR_LIMIT_EMERGENCY,
-    truncate_middle
+    truncate_middle,
 )
 
 # Import streaming utilities for real-time updates
@@ -85,11 +85,15 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     task_tracker = get_task_tracker()
 
     # REAL-TIME SAU CONTEXT
-    async with StreamingContext(chat_id, name, auto_complete=False) as stream:
+    silent = subagent_data.get("silent", False)
+    async with StreamingContext(
+        chat_id, name, auto_complete=False, silent=silent
+    ) as stream:
         try:
             SUBAGENTS[subagent_id]["status"] = "running"
-            await stream.send("Analysis in progress...")
-            
+            if not silent:
+                await stream.send("Analysis in progress...")
+
             # Execute agent task
             try:
                 # We use stream=True so the agent itself can report progress steps
@@ -97,9 +101,12 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             except Exception as e:
                 error_msg = str(e)
                 if any(p in error_msg.lower() for p in ["context", "token", "400"]):
-                    await stream.send("Context limit reached. Retrying with compressed state...")
+                    await stream.send(
+                        "Context limit reached. Retrying with compressed state..."
+                    )
                     agent.num_history_messages = 1
-                    if hasattr(agent, "memory"): agent.memory.clear()
+                    if hasattr(agent, "memory"):
+                        agent.memory.clear()
                     response = await agent.arun(truncate_middle(instruction, 30000))
                 else:
                     raise
@@ -109,59 +116,102 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             SUBAGENTS[subagent_id]["status"] = "completed"
 
             # SEND FINAL RESULT via SAU
-            # We send it via progress to ensure it's not swallowed
-            await stream.send(f"Result summary: {result[:3500]}")
-            await send_streaming_complete(chat_id, name)
-            
+            # We send it via send_live_update directly to ensure it's delivered even in silent mode
+            from nova.tools.streaming_utils import send_live_update
+
+            await send_live_update(f"Result summary: {result[:3500]}", chat_id, name)
+            await send_streaming_complete(chat_id, name, silent=silent)
+
             task_tracker.unregister_task(subagent_id, {"status": "completed"})
 
         except Exception as e:
             SUBAGENTS[subagent_id]["status"] = "failed"
             SUBAGENTS[subagent_id]["result"] = str(e)
-            task_tracker.unregister_task(subagent_id, {"status": "failed", "error": str(e)})
+            task_tracker.unregister_task(
+                subagent_id, {"status": "failed", "error": str(e)}
+            )
             await stream.send(f"Update: {str(e)}", msg_type="error")
-            
+
             if chat_id:
                 from nova.telegram_bot import reinvigorate_nova
-                asyncio.create_task(reinvigorate_nova(chat_id, f"Geopolitics-Expert-X1 error: {str(e)}"))
+
+                asyncio.create_task(
+                    reinvigorate_nova(chat_id, f"Geopolitics-Expert-X1 error: {str(e)}")
+                )
+
 
 async def create_subagent(
-    name: str, instructions: str, task: str, chat_id: Optional[str] = None
+    name: str,
+    instructions: str,
+    task: str,
+    chat_id: Optional[str] = None,
+    silent: bool = False,
 ) -> str:
     subagent_id = str(uuid.uuid4())
     api_key = os.getenv("OPENROUTER_API_KEY")
     subagent_model = os.getenv("SUBAGENT_MODEL", "minimax/minimax-m2.5")
 
-    model = OpenAIChat(id=subagent_model, api_key=api_key, base_url="https://openrouter.ai/api/v1")
+    model = OpenAIChat(
+        id=subagent_model, api_key=api_key, base_url="https://openrouter.ai/api/v1"
+    )
 
     database_url = os.getenv("DATABASE_URL")
-    if database_url and ("postgresql://" in database_url or "postgres://" in database_url):
+    if database_url and (
+        "postgresql://" in database_url or "postgres://" in database_url
+    ):
         if database_url.startswith("postgres://"):
             database_url = database_url.replace("postgres://", "postgresql://", 1)
         db = PostgresDb(session_table="nova_subagent_sessions", db_url=database_url)
     else:
-        db = SqliteDb(db_file="/app/data/nova_memory.db" if os.path.exists("/app/data") else "nova_memory.db")
+        db = SqliteDb(
+            db_file="/app/data/nova_memory.db"
+            if os.path.exists("/app/data")
+            else "nova_memory.db"
+        )
 
     # Aggressive truncation for stability
     try:
-        opt_instr, opt_task = await optimize_subagent_input(instructions, task, 8000, 30000)
+        opt_instr, opt_task = await optimize_subagent_input(
+            instructions, task, 8000, 30000
+        )
         instructions, task = opt_instr, opt_task
-    except: pass
+    except:
+        pass
 
     from nova.agent import get_mcp_toolkits
+
     tools = [
-        execute_shell_command, read_file, write_file, list_files, delete_file, 
-        create_directory, pull_latest_changes, send_streaming_start, 
-        send_streaming_progress, send_streaming_complete, send_streaming_error
-    ] + get_mcp_toolkits()
+        execute_shell_command,
+        read_file,
+        write_file,
+        list_files,
+        delete_file,
+        create_directory,
+        pull_latest_changes,
+    ]
+
+    if not silent:
+        tools.extend(
+            [
+                send_streaming_start,
+                send_streaming_progress,
+                send_streaming_complete,
+                send_streaming_error,
+            ]
+        )
+
+    tools.extend(get_mcp_toolkits())
 
     # Subagent prompt injection
-    full_instr = [
-        f"You are {name}.",
-        "Report step progress via send_streaming_progress immediately after tool usage.",
-        "CRITICAL: Always summarize large outputs. Plaintext only.",
-        instructions
-    ]
+    full_instr = [f"You are {name}."]
+    if not silent:
+        full_instr.append(
+            "Report step progress via send_streaming_progress immediately after tool usage."
+        )
+
+    full_instr.extend(
+        ["CRITICAL: Always summarize large outputs. Plaintext only.", instructions]
+    )
 
     worker = Agent(
         model=model,
@@ -169,7 +219,7 @@ async def create_subagent(
         instructions=full_instr,
         tools=tools,
         markdown=False,
-        num_history_messages=3, # Keep history very short
+        num_history_messages=3,  # Keep history very short
         add_datetime_to_context=True,
     )
 
@@ -177,19 +227,33 @@ async def create_subagent(
     loop.create_task(run_subagent_task(subagent_id, worker, task))
 
     SUBAGENTS[subagent_id] = {
-        "name": name, "status": "starting", "result": None, "instruction": task, "chat_id": chat_id,
+        "name": name,
+        "status": "starting",
+        "result": None,
+        "instruction": task,
+        "chat_id": chat_id,
+        "silent": silent,
     }
 
-    get_task_tracker().register_task(subagent_id, "subagent", name, description=f"Task: {name}")
+    get_task_tracker().register_task(
+        subagent_id, "subagent", name, description=f"Task: {name}"
+    )
     return f"Subagent '{name}' initialized."
 
+
 def list_subagents() -> str:
-    if not SUBAGENTS: return "No subagents."
-    return "\n".join([f"{sid[:8]} | {d['name']} | {d['status']}" for sid, d in SUBAGENTS.items()])
+    if not SUBAGENTS:
+        return "No subagents."
+    return "\n".join(
+        [f"{sid[:8]} | {d['name']} | {d['status']}" for sid, d in SUBAGENTS.items()]
+    )
+
 
 def get_subagent_result(subagent_id: str) -> str:
-    if subagent_id not in SUBAGENTS: return "Not found."
+    if subagent_id not in SUBAGENTS:
+        return "Not found."
     return f"Result: {str(SUBAGENTS[subagent_id]['result'])[:1000]}"
+
 
 def kill_subagent(subagent_id: str) -> str:
     return "Kill requested (not persistent)."

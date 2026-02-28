@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_specialist_agent(
-    name: str, session_id: Optional[str] = None
+    name: str, session_id: Optional[str] = None, silent: bool = False
 ) -> Optional[Agent]:
     """Instantiate a specialist agent from DB configuration."""
     config = get_specialist_config(name)
@@ -41,11 +41,25 @@ def create_specialist_agent(
     # Tool assignment
     tools = get_tools_by_names(config["tools"])
 
+    if silent:
+        # Filter out streaming tools to prevent progress spam
+        streaming_tool_names = [
+            "send_streaming_start",
+            "send_streaming_progress",
+            "send_streaming_complete",
+            "send_streaming_error",
+        ]
+        tools = [
+            t for t in tools if getattr(t, "__name__", "") not in streaming_tool_names
+        ]
+
     # DB setup for persistent specialist memory
     db = get_agno_db(session_table=f"specialist_{name}_sessions")
 
     # MANDATORY SAU INSTRUCTIONS for specialists
-    sau_instructions = """## MANDATORY LIVE UPDATES (SAU) - REAL-TIME MODE:
+    sau_instructions = ""
+    if not silent:
+        sau_instructions = """## MANDATORY LIVE UPDATES (SAU) - REAL-TIME MODE:
 - YOU MUST use the streaming system to report milestones IMMEDIATELY as you progress.
 - Use the `send_streaming_start`, `send_streaming_progress`, and `send_streaming_complete` functions.
 - The header format for all updates is: [SAU: {agent_name}]
@@ -53,6 +67,8 @@ def create_specialist_agent(
 - DO NOT stream every line of output or every internal thought.
 - This is NOT optional - it is the MANDATORY default for all reporting.
 """
+    else:
+        sau_instructions = "## QUIET MODE: Do NOT stream progress updates. Only return the final result."
 
     # Inject SAU instructions into the specialist's existing instructions
     enhanced_instructions = sau_instructions + "\n\n" + config.get("instructions", "")
@@ -74,6 +90,7 @@ async def run_team_task(
     specialist_names: List[str],
     task_description: str,
     chat_id: Optional[str] = None,
+    silent: bool = False,
 ) -> str:
     """
     Creates a dynamic team and runs a task asynchronously.
@@ -88,7 +105,7 @@ async def run_team_task(
         missing_specialists = []
 
         for s_name in specialist_names:
-            agent = create_specialist_agent(s_name)
+            agent = create_specialist_agent(s_name, silent=silent)
             if agent:
                 members.append(agent)
             else:
@@ -111,13 +128,16 @@ async def run_team_task(
             )
 
         # Team setup with mandatory SAU instructions
-        team_instructions = """## MANDATORY LIVE UPDATES (SAU) - REAL-TIME MODE:
+        if not silent:
+            team_instructions = """## MANDATORY LIVE UPDATES (SAU) - REAL-TIME MODE:
 This team MUST use SAU streaming updates for all progress reporting.
 The header format is: [SAU: {team_name}]
 - Report key milestones as they occur.
 - DO NOT stream every line of output or every internal thought.
 - You can commit code, but you cannot push to remote. Nova PM handles all pushes.
 """
+        else:
+            team_instructions = "## QUIET MODE: Do NOT stream progress updates. Only return the final result."
 
         team = Team(
             name=task_name,
@@ -140,22 +160,25 @@ The header format is: [SAU: {team_name}]
             "status": "running",
             "result": None,
             "chat_id": chat_id,
+            "silent": silent,
         }
 
         # Run in background via task with SAU updates
         async def _team_runner():
             # Create SAU streaming context for the team
             async with StreamingContext(
-                chat_id, f"Team: {task_name}", auto_complete=False
+                chat_id, f"Team: {task_name}", auto_complete=False, silent=silent
             ) as stream:
                 try:
-                    await stream.send(f"Initializing {len(members)} specialists...")
+                    if not silent:
+                        await stream.send(f"Initializing {len(members)} specialists...")
 
-                    # Stream each step as it happens
-                    for i, member in enumerate(members):
-                        await stream.send(
-                            f"Starting specialist {i+1}/{len(members)}: {member.name}..."
-                        )
+                    if not silent:
+                        # Stream each step as it happens
+                        for i, member in enumerate(members):
+                            await stream.send(
+                                f"Starting specialist {i+1}/{len(members)}: {member.name}..."
+                            )
                         # Each specialist will send its own SAU updates
 
                     response = await team.arun(task_description)
@@ -164,6 +187,15 @@ The header format is: [SAU: {team_name}]
                     SUBAGENTS[subagent_id]["result"] = response.content
 
                     await stream.send("Team task completed successfully!")
+
+                    # Ensure final result is delivered
+                    from nova.tools.streaming_utils import send_live_update
+
+                    await send_live_update(
+                        f"Team Result: {response.content[:3500]}",
+                        chat_id,
+                        f"Team: {task_name}",
+                    )
 
                 except Exception as e:
                     SUBAGENTS[subagent_id]["status"] = "failed"
@@ -180,7 +212,7 @@ The header format is: [SAU: {team_name}]
                             )
                         )
 
-        if chat_id:
+        if chat_id and not silent:
             # Send minimal notification that team is starting
             # The StreamingContext will handle the detailed updates
             from nova.telegram_bot import notify_user
@@ -193,7 +225,9 @@ The header format is: [SAU: {team_name}]
             )
 
             # Send SAU start notification
-            asyncio.create_task(send_streaming_start(chat_id, f"Team: {task_name}"))
+            asyncio.create_task(
+                send_streaming_start(chat_id, f"Team: {task_name}", silent=silent)
+            )
 
         asyncio.create_task(_team_runner())
 

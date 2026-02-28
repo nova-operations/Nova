@@ -99,6 +99,7 @@ def _get_telegram_bot():
 
     try:
         import nova.telegram_bot as tb_module
+
         if hasattr(tb_module, "telegram_bot_instance"):
             bot = tb_module.telegram_bot_instance
             if bot is not None:
@@ -109,6 +110,7 @@ def _get_telegram_bot():
 
     try:
         import sys
+
         for mod_name, mod in sys.modules.items():
             if "telegram_bot" in mod_name and mod is not None:
                 if hasattr(mod, "telegram_bot_instance"):
@@ -123,6 +125,7 @@ def _get_telegram_bot():
         token = os.getenv("TELEGRAM_BOT_TOKEN")
         if token:
             from telegram import Bot
+
             bot = Bot(token=token)
             _cached_bot = bot
             return bot
@@ -146,13 +149,17 @@ async def send_live_update(
     chat_id: Optional[str] = None,
     subagent_name: str = "Unknown",
     message_type: str = "update",
+    silent: bool = False,
 ) -> bool:
     """
     Send a live streaming update to the user via Telegram.
     """
+    if silent:
+        return True
+
     chat_id = _get_chat_id(chat_id, subagent_name)
     message = strip_all_formatting(str(message))
-    
+
     if not message:
         return False
 
@@ -165,16 +172,14 @@ async def send_live_update(
             return False
 
         await _ensure_bot_initialized(bot)
-        
+
         # Determine how to send
         from nova.long_message_handler import send_message_with_fallback
-        
+
         # We use short-circuit here: if message is tiny, send directly to avoid PDF overhead
         if len(formatted_message) < 3800:
             await bot.send_message(
-                chat_id=int(chat_id),
-                text=formatted_message,
-                parse_mode=None
+                chat_id=int(chat_id), text=formatted_message, parse_mode=None
             )
         else:
             await send_message_with_fallback(
@@ -182,7 +187,7 @@ async def send_live_update(
                 int(chat_id),
                 formatted_message,
                 title=f"SAU: {subagent_name}",
-                parse_mode=None
+                parse_mode=None,
             )
         return True
     except Exception as e:
@@ -190,36 +195,58 @@ async def send_live_update(
         return False
 
 
-async def send_streaming_start(chat_id: Optional[str], name: str) -> str:
-    success = await send_live_update("Task started", chat_id, name, "start")
+async def send_streaming_start(
+    chat_id: Optional[str], name: str, silent: bool = False
+) -> str:
+    success = await send_live_update(
+        "Task started", chat_id, name, "start", silent=silent
+    )
     return "Started" if success else "Failed"
 
 
-async def send_streaming_progress(chat_id: Optional[str], name: str, progress: str) -> str:
-    success = await send_live_update(progress, chat_id, name, "progress")
+async def send_streaming_progress(
+    chat_id: Optional[str], name: str, progress: str, silent: bool = False
+) -> str:
+    success = await send_live_update(progress, chat_id, name, "progress", silent=silent)
     return "Sent" if success else "Failed"
 
 
-async def send_streaming_complete(chat_id: Optional[str], name: str, summary: Optional[str] = None) -> str:
+async def send_streaming_complete(
+    chat_id: Optional[str],
+    name: str,
+    summary: Optional[str] = None,
+    silent: bool = False,
+) -> str:
     msg = f"Task completed successfully! {summary if summary else ''}"
-    success = await send_live_update(msg, chat_id, name, "complete")
+    success = await send_live_update(msg, chat_id, name, "complete", silent=silent)
     return "Completed" if success else "Failed"
 
 
-async def send_streaming_error(chat_id: Optional[str], name: str, error: str) -> str:
-    success = await send_live_update(f"Error: {error}", chat_id, name, "error")
+async def send_streaming_error(
+    chat_id: Optional[str], name: str, error: str, silent: bool = False
+) -> str:
+    success = await send_live_update(
+        f"Error: {error}", chat_id, name, "error", silent=silent
+    )
     return "Error sent" if success else "Failed"
 
 
 class StreamingContext:
-    def __init__(self, chat_id: Optional[str], subagent_name: str, auto_complete: bool = True):
+    def __init__(
+        self,
+        chat_id: Optional[str],
+        subagent_name: str,
+        auto_complete: bool = True,
+        silent: bool = False,
+    ):
         self.chat_id = _get_chat_id(chat_id, subagent_name)
         self.subagent_name = subagent_name
         self.auto_complete = auto_complete
+        self.silent = silent
         self._progress_messages = []
 
     async def __aenter__(self):
-        await send_streaming_start(self.chat_id, self.subagent_name)
+        await send_streaming_start(self.chat_id, self.subagent_name, silent=self.silent)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -230,10 +257,14 @@ class StreamingContext:
             summary = ""
             if self._progress_messages:
                 summary = f"Result: {self._progress_messages[-1][:200]}..."
-            await send_streaming_complete(self.chat_id, self.subagent_name, summary)
+            await send_streaming_complete(
+                self.chat_id, self.subagent_name, summary, silent=self.silent
+            )
         return False
 
-    async def send(self, message: str, msg_type: str = "update"):
+    async def send(self, message: str, msg_type: str = "update", silent: bool = False):
+        if self.silent or silent:
+            return True
         clean_msg = strip_all_formatting(str(message))
         if not clean_msg:
             return False

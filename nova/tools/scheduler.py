@@ -22,7 +22,17 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Enum, JSON, text
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Boolean,
+    DateTime,
+    Text,
+    Enum,
+    JSON,
+    text,
+)
 from sqlalchemy.orm import sessionmaker
 from nova.db.base import Base
 from nova.db.engine import get_db_engine, get_session_factory
@@ -106,28 +116,28 @@ def _cleanup_all_orphaned_jobs():
     global _scheduler_initialized
     if _scheduler_initialized:
         return
-    
+
     try:
         db = get_session()
         engine = get_db_engine()
         scheduler = get_scheduler()
-        
+
         try:
             # Get job IDs directly from the database table (not in-memory)
             with engine.connect() as conn:
-                result = conn.execute(text('SELECT id FROM apscheduler_jobs'))
+                result = conn.execute(text("SELECT id FROM apscheduler_jobs"))
                 apscheduler_job_ids = {row[0] for row in result.fetchall()}
-            
+
             # Get all task IDs from DB (including active and paused)
             db_tasks = db.query(ScheduledTask).all()
             db_task_ids = {str(task.id) for task in db_tasks}
-            
+
             # Also handle manual trigger jobs (prefixed with "manual_")
             db_task_ids.update({f"manual_{t.id}" for t in db_tasks})
-            
+
             # Find orphaned jobs (in APScheduler but not in DB)
             orphaned_jobs = apscheduler_job_ids - db_task_ids
-            
+
             # Remove orphaned jobs directly from the database table
             for job_id in orphaned_jobs:
                 try:
@@ -136,21 +146,24 @@ def _cleanup_all_orphaned_jobs():
                 except Exception as e:
                     # Job might not be loaded in memory, that's ok
                     pass
-                    
+
                 # Always try to remove from the database table
                 try:
                     with engine.connect() as conn:
-                        conn.execute(text('DELETE FROM apscheduler_jobs WHERE id = :id'), {'id': job_id})
+                        conn.execute(
+                            text("DELETE FROM apscheduler_jobs WHERE id = :id"),
+                            {"id": job_id},
+                        )
                         conn.commit()
                     logger.info(f"Cleaned up orphaned APScheduler job: {job_id}")
                 except Exception as e:
                     logger.debug(f"Failed to remove job {job_id} from DB: {e}")
-                    
+
         finally:
             db.close()
-            
+
         _scheduler_initialized = True
-        
+
     except Exception as e:
         logger.warning(f"Failed to cleanup orphaned jobs during init: {e}")
         # Still mark as initialized to prevent infinite retry
@@ -203,10 +216,7 @@ async def _send_telegram_notification(message: str, chat_id: Optional[str] = Non
         return
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {
-        "chat_id": str(target_chat_id),
-        "text": message
-    }
+    payload = {"chat_id": str(target_chat_id), "text": message}
 
     try:
         async with httpx.AsyncClient() as client:
@@ -254,7 +264,7 @@ async def _execute_subagent_recall(
     subagent_instructions: str,
     subagent_task: str,
     notification_enabled: bool,
-    target_chat_id: Optional[str] = None
+    target_chat_id: Optional[str] = None,
 ):
     """Execute a subagent recall."""
     logger.info(f"Executing subagent recall: {subagent_name}")
@@ -264,11 +274,13 @@ async def _execute_subagent_recall(
         from nova.tools.subagent import create_subagent
 
         # Create subagent asynchronously
+        # We use silent=True if notification_enabled is False OR if we want to minimize spam
         result = await create_subagent(
-            name=subagent_name, 
-            instructions=subagent_instructions, 
+            name=subagent_name,
+            instructions=subagent_instructions,
             task=subagent_task,
-            chat_id=target_chat_id
+            chat_id=target_chat_id,
+            silent=True,
         )
 
         if result.startswith("Error"):
@@ -295,7 +307,7 @@ async def _execute_team_task(
     specialist_names: List[str],
     task_description: str,
     notification_enabled: bool,
-    target_chat_id: Optional[str] = None
+    target_chat_id: Optional[str] = None,
 ):
     """Execute a team task recall."""
     logger.info(f"Executing scheduled team task: {task_name}")
@@ -307,7 +319,8 @@ async def _execute_team_task(
             task_name=task_name,
             specialist_names=specialist_names,
             task_description=task_description,
-            chat_id=target_chat_id
+            chat_id=target_chat_id,
+            silent=True,
         )
 
         if result.startswith("❌"):
@@ -329,7 +342,9 @@ async def _execute_silent_task(job_id: int):
     return "success", "Silent task completed"
 
 
-async def _execute_alert_task(job_id: int, alert_message: str, target_chat_id: Optional[str] = None):
+async def _execute_alert_task(
+    job_id: int, alert_message: str, target_chat_id: Optional[str] = None
+):
     """Execute an alert task (sends a direct message)."""
     logger.info(f"Executing alert task: {job_id} for chat: {target_chat_id}")
     await _send_telegram_notification(alert_message, chat_id=target_chat_id)
@@ -344,12 +359,14 @@ def _cleanup_orphaned_job(job_id: str):
         logger.info(f"Cleaned up orphaned APScheduler job: {job_id}")
     except Exception as e:
         logger.debug(f"Job {job_id} already removed or not found: {e}")
-    
+
     # Also remove from database table directly
     try:
         engine = get_db_engine()
         with engine.connect() as conn:
-            conn.execute(text('DELETE FROM apscheduler_jobs WHERE id = :id'), {'id': job_id})
+            conn.execute(
+                text("DELETE FROM apscheduler_jobs WHERE id = :id"), {"id": job_id}
+            )
             conn.commit()
     except Exception as e:
         logger.debug(f"Failed to remove job {job_id} from DB table: {e}")
@@ -366,7 +383,9 @@ async def _job_executor(job_id: int):
         if not task:
             # Task not found in DB - this is an orphaned job in APScheduler
             # Clean it up to prevent future errors
-            logger.debug(f"Task not found in DB: {job_id}. Cleaning up orphaned APScheduler job.")
+            logger.debug(
+                f"Task not found in DB: {job_id}. Cleaning up orphaned APScheduler job."
+            )
             _cleanup_orphaned_job(str(job_id))
             return
 
@@ -399,7 +418,7 @@ async def _job_executor(job_id: int):
                 task.subagent_instructions or "You are a scheduled task executor.",
                 task.subagent_task,
                 task.notification_enabled,
-                target_chat_id=target_chat_id
+                target_chat_id=target_chat_id,
             )
 
         elif task.task_type == TaskType.TEAM_TASK:
@@ -413,7 +432,7 @@ async def _job_executor(job_id: int):
                 task.team_members,
                 task.subagent_task,
                 task.notification_enabled,
-                target_chat_id=target_chat_id
+                target_chat_id=target_chat_id,
             )
 
         elif task.task_type == TaskType.SILENT:
@@ -423,7 +442,9 @@ async def _job_executor(job_id: int):
             if not task.subagent_task:
                 logger.error(f"No alert message for alert task: {job_id}")
                 return
-            status, output = await _execute_alert_task(job_id, task.subagent_task, target_chat_id=target_chat_id)
+            status, output = await _execute_alert_task(
+                job_id, task.subagent_task, target_chat_id=target_chat_id
+            )
 
         else:
             logger.error(f"Unknown task type: {task.task_type}")
@@ -713,7 +734,7 @@ def update_scheduled_task(
 
         if notification_enabled is not None:
             task.notification_enabled = notification_enabled
-            
+
         if chat_id is not None:
             task.target_chat_id = chat_id
 
@@ -884,32 +905,34 @@ def sync_scheduler_with_db() -> str:
     scheduler = get_scheduler()
     db = get_session()
     engine = get_db_engine()
-    
+
     try:
         # Get all APScheduler jobs directly from the database table
         with engine.connect() as conn:
-            result = conn.execute(text('SELECT id FROM apscheduler_jobs'))
+            result = conn.execute(text("SELECT id FROM apscheduler_jobs"))
             apscheduler_job_ids = {row[0] for row in result.fetchall()}
-        
+
         # Get ALL tasks from DB (active and paused) for orphaned job detection
         all_tasks = db.query(ScheduledTask).all()
         all_task_ids = {str(task.id) for task in all_tasks}
-        
+
         # Also handle manual trigger jobs (prefixed with "manual_")
         all_task_ids.update({f"manual_{t.id}" for t in all_tasks})
-        
+
         # Get only active tasks for missing job addition
-        active_tasks = db.query(ScheduledTask).filter(
-            ScheduledTask.status == TaskStatus.ACTIVE
-        ).all()
+        active_tasks = (
+            db.query(ScheduledTask)
+            .filter(ScheduledTask.status == TaskStatus.ACTIVE)
+            .all()
+        )
         active_task_ids = {str(task.id) for task in active_tasks}
-        
+
         # Find orphaned jobs (in APScheduler but not in DB)
         orphaned_jobs = apscheduler_job_ids - all_task_ids
-        
+
         # Find missing jobs (in DB but not in APScheduler) - only active ones
         missing_jobs = active_task_ids - apscheduler_job_ids
-        
+
         # Remove orphaned jobs
         removed_count = 0
         for job_id in orphaned_jobs:
@@ -918,17 +941,20 @@ def sync_scheduler_with_db() -> str:
                 scheduler.remove_job(job_id)
             except Exception as e:
                 pass  # Job might not be in memory
-                
+
             # Remove from database table
             try:
                 with engine.connect() as conn:
-                    conn.execute(text('DELETE FROM apscheduler_jobs WHERE id = :id'), {'id': job_id})
+                    conn.execute(
+                        text("DELETE FROM apscheduler_jobs WHERE id = :id"),
+                        {"id": job_id},
+                    )
                     conn.commit()
                 logger.info(f"Removed orphaned job: {job_id}")
                 removed_count += 1
             except Exception as e:
                 logger.debug(f"Failed to remove job {job_id}: {e}")
-        
+
         # Add missing jobs
         added_count = 0
         for task in active_tasks:
@@ -945,9 +971,9 @@ def sync_scheduler_with_db() -> str:
                     added_count += 1
                 except Exception as e:
                     logger.error(f"Failed to add job for task {task.task_name}: {e}")
-        
+
         return f"✅ Sync complete. Removed {removed_count} orphaned jobs, added {added_count} missing jobs."
-        
+
     except Exception as e:
         logger.error(f"Scheduler sync failed: {e}")
         return f"Error during sync: {e}"
