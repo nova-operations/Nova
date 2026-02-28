@@ -136,6 +136,20 @@ async def _error_monitor_loop():
                         err.status = ErrorStatus.FAILED
                         logger.error(f"Auto-healer failed for error {err.id}: {e}")
 
+                        # VIBRATE: Wake up Nova PM if auto-healing fails or for critical alerts
+                        from nova.telegram_bot import reinvigorate_nova
+                        import os
+
+                        chat_id = os.getenv("TELEGRAM_CHAT_ID")
+                        if chat_id:
+                            await reinvigorate_nova(
+                                chat_id,
+                                f"🚨 CRITICAL SYSTEM ERROR: Auto-healer failed for error {err.id}.\n"
+                                f"Error: {err.error_message}\n"
+                                f"Healing Exception: {str(e)}\n\n"
+                                "Nova, I need manual intervention or higher-level reasoning to resolve this.",
+                            )
+
                     db.commit()
             finally:
                 db.close()

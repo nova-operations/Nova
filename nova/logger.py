@@ -22,3 +22,11 @@ def setup_logging():
             logger.setLevel(logging.WARNING)
         else:
             logger.setLevel(logging.INFO)
+
+    # Initialize Error Bus by default to capture all errors for Nova self-healing
+    try:
+        from nova.tools.error_bus import start_error_bus
+
+        start_error_bus()
+    except Exception as e:
+        print(f"Failed to auto-start error bus: {e}")

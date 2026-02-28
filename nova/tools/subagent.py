@@ -136,7 +136,9 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
                 from nova.telegram_bot import reinvigorate_nova
 
                 asyncio.create_task(
-                    reinvigorate_nova(chat_id, f"Geopolitics-Expert-X1 error: {str(e)}")
+                    reinvigorate_nova(
+                        chat_id, f"🚨 Subagent '{name}' failed with error: {str(e)}"
+                    )
                 )
 
 
