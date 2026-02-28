@@ -21,8 +21,8 @@ from typing import Dict, Optional, List
 from datetime import datetime
 from dataclasses import dataclass, field
 
-# Import subagent management
 from nova.tools.subagent import SUBAGENTS, list_subagents, get_subagent_result
+from nova.tools.context_optimizer import wrap_tool_output_optimization
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +267,7 @@ def get_heartbeat_monitor() -> HeartbeatMonitor:
 # =============================================================================
 
 
+@wrap_tool_output_optimization
 def start_heartbeat_monitor(interval_seconds: int = 30) -> str:
     """
     Start the heartbeat monitor to track active subagents.
@@ -283,6 +284,7 @@ def start_heartbeat_monitor(interval_seconds: int = 30) -> str:
     return f"✅ Heartbeat Monitor started (checking every {interval_seconds}s)"
 
 
+@wrap_tool_output_optimization
 def stop_heartbeat_monitor() -> str:
     """Stop the heartbeat monitor."""
     monitor = get_heartbeat_monitor()
@@ -290,6 +292,7 @@ def stop_heartbeat_monitor() -> str:
     return "🛑 Heartbeat Monitor stop requested (will stop on next check)"
 
 
+@wrap_tool_output_optimization
 def register_subagent_for_heartbeat(
     subagent_id: str, name: str, chat_id: Optional[str] = None
 ) -> str:
@@ -309,6 +312,7 @@ def register_subagent_for_heartbeat(
     return f"✅ Subagent '{name}' ({subagent_id}) registered for heartbeat monitoring"
 
 
+@wrap_tool_output_optimization
 def unregister_subagent_from_heartbeat(subagent_id: str) -> str:
     """
     Remove a subagent from heartbeat monitoring.
@@ -324,6 +328,7 @@ def unregister_subagent_from_heartbeat(subagent_id: str) -> str:
     return f"🗑️ Subagent ({subagent_id}) unregistered from heartbeat monitoring"
 
 
+@wrap_tool_output_optimization
 def get_heartbeat_status() -> str:
     """
     Get the current heartbeat status of all monitored subagents.
@@ -335,6 +340,7 @@ def get_heartbeat_status() -> str:
     return monitor.get_status()
 
 
+@wrap_tool_output_optimization
 def get_heartbeat_detailed_status() -> Dict:
     """
     Get detailed heartbeat status as a dictionary.
@@ -346,6 +352,7 @@ def get_heartbeat_detailed_status() -> Dict:
     return monitor.get_detailed_status()
 
 
+@wrap_tool_output_optimization
 def auto_register_active_subagents() -> str:
     """
     Automatically register all currently running subagents for heartbeat monitoring.

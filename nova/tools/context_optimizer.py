@@ -21,9 +21,9 @@ from dataclasses import dataclass, field
 logger = logging.getLogger(__name__)
 
 # Token limits (approximate - assumes ~4 chars per token)
-DEFAULT_TOKEN_LIMIT = 150000  # Conservative limit for subagent context
-HIGH_TOKEN_LIMIT = 100000  # For essential operations
-EMERGENCY_TOKEN_LIMIT = 50000  # Absolute minimum
+DEFAULT_TOKEN_LIMIT = 50000  # Conservative limit for subagent context
+HIGH_TOKEN_LIMIT = 40000  # For essential operations
+EMERGENCY_TOKEN_LIMIT = 30000  # Absolute minimum
 
 # Character limits based on token approximation
 CHAR_LIMIT_DEFAULT = DEFAULT_TOKEN_LIMIT * 4
@@ -340,15 +340,15 @@ async def optimize_search_results(search_results: str, max_tokens: int = 10000) 
 
     search_str = str(search_results)
     optimizer = get_context_optimizer()
-    
+
     # We use a smaller token budget for search results within a subagent loop
     result = await optimizer.optimize(
         search_str, method="middle-out", max_tokens=max_tokens
     )
-    
+
     if result.was_truncated:
         return f"--- [TRUNCATED SEARCH RESULTS to {max_tokens} tokens] ---\n{result.content}"
-    
+
     return result.content
 
 
@@ -367,14 +367,27 @@ def smart_chunk(content: str, chunk_size: int = 25000) -> List[str]:
 
 def wrap_tool_output_optimization(tool_func):
     """
-    Decorator to automatically optimize tool results.
+    Decorator to automatically optimize tool results, works for both sync and async.
     """
     import functools
-    
-    @functools.wraps(tool_func)
-    def wrapper(*args, **kwargs):
-        result = tool_func(*args, **kwargs)
-        if isinstance(result, str) and len(result) > CHAR_LIMIT_HIGH:
-            return truncate_middle(result, CHAR_LIMIT_HIGH)
-        return result
-    return wrapper
+
+    if asyncio.iscoroutinefunction(tool_func):
+
+        @functools.wraps(tool_func)
+        async def async_wrapper(*args, **kwargs):
+            result = await tool_func(*args, **kwargs)
+            if isinstance(result, str) and len(result) > CHAR_LIMIT_HIGH:
+                return truncate_middle(result, CHAR_LIMIT_HIGH)
+            return result
+
+        return async_wrapper
+    else:
+
+        @functools.wraps(tool_func)
+        def sync_wrapper(*args, **kwargs):
+            result = tool_func(*args, **kwargs)
+            if isinstance(result, str) and len(result) > CHAR_LIMIT_HIGH:
+                return truncate_middle(result, CHAR_LIMIT_HIGH)
+            return result
+
+        return sync_wrapper

@@ -11,6 +11,8 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+from nova.tools.context_optimizer import wrap_tool_output_optimization
+
 
 class SpecialistConfig(Base):
     """Configuration for a reusable specialist agent."""
@@ -46,7 +48,7 @@ When fixing bugs:
 - Provide clear, minimal fixes
 - Test your changes when possible
 - Report back with what was fixed""",
-        "tools": ["read_file", "write_file", "execute_shell_command", "list_files"]
+        "tools": ["read_file", "write_file", "execute_shell_command", "list_files"],
     },
     {
         "name": "Code-Reviewer",
@@ -63,7 +65,7 @@ When reviewing:
 - Flag critical issues prominently
 - Suggest specific improvements
 - Approve only when code meets quality standards""",
-        "tools": ["read_file", "execute_shell_command", "list_files"]
+        "tools": ["read_file", "execute_shell_command", "list_files"],
     },
     {
         "name": "Security-Audit",
@@ -80,7 +82,7 @@ When auditing:
 - Provide CVEs and vulnerability references when available
 - Suggest specific remediation steps
 - Never modify code without explicit permission""",
-        "tools": ["read_file", "execute_shell_command", "list_files"]
+        "tools": ["read_file", "execute_shell_command", "list_files"],
     },
     {
         "name": "Frontend-Dev",
@@ -97,7 +99,7 @@ When developing:
 - Keep components modular and reusable
 - Optimize for performance
 - Test in multiple browsers""",
-        "tools": ["read_file", "write_file", "execute_shell_command", "list_files"]
+        "tools": ["read_file", "write_file", "execute_shell_command", "list_files"],
     },
     {
         "name": "Backend-Dev",
@@ -114,7 +116,7 @@ When developing:
 - Use parameterized queries to prevent SQL injection
 - Implement proper error handling
 - Consider scalability""",
-        "tools": ["read_file", "write_file", "execute_shell_command", "list_files"]
+        "tools": ["read_file", "write_file", "execute_shell_command", "list_files"],
     },
     {
         "name": "DevOps-Engineer",
@@ -131,7 +133,7 @@ When doing DevOps:
 - Ensure reproducibility
 - Implement proper logging and monitoring
 - Follow security best practices""",
-        "tools": ["read_file", "write_file", "execute_shell_command", "list_files"]
+        "tools": ["read_file", "write_file", "execute_shell_command", "list_files"],
     },
     {
         "name": "Researcher",
@@ -147,7 +149,7 @@ When researching:
 - Provide pros and cons of different approaches
 - Include code examples when relevant
 - Summarize for technical audience""",
-        "tools": ["read_file", "execute_shell_command", "list_files"]
+        "tools": ["read_file", "execute_shell_command", "list_files"],
     },
     {
         "name": "Tester",
@@ -163,8 +165,8 @@ When testing:
 - Cover both positive and negative cases
 - Keep tests simple and readable
 - Focus on critical user paths""",
-        "tools": ["read_file", "write_file", "execute_shell_command", "list_files"]
-    }
+        "tools": ["read_file", "write_file", "execute_shell_command", "list_files"],
+    },
 ]
 
 
@@ -190,7 +192,7 @@ def seed_default_specialists() -> str:
                     role=spec["role"],
                     instructions=spec["instructions"],
                     model=os.getenv("SUBAGENT_MODEL", "minimax/minimax-m2.5"),
-                    tools=spec["tools"]
+                    tools=spec["tools"],
                 )
                 session.add(new_spec)
                 seeded.append(spec["name"])
@@ -207,6 +209,7 @@ def seed_default_specialists() -> str:
         session.close()
 
 
+@wrap_tool_output_optimization
 def save_specialist_config(
     name: str, role: str, instructions: str, model: str = None, tools: List[str] = None
 ) -> str:
@@ -260,6 +263,7 @@ def get_specialist_config(name: str) -> Optional[Dict]:
         session.close()
 
 
+@wrap_tool_output_optimization
 def list_specialists() -> str:
     """List all registered specialists."""
     session = get_session()

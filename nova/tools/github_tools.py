@@ -6,6 +6,7 @@ import json
 from typing import Optional, List, Tuple
 
 from nova.tools.project_manager import get_active_project
+from nova.tools.context_optimizer import wrap_tool_output_optimization
 
 
 def get_repo_dir(project_name: Optional[str] = None) -> str:
@@ -108,6 +109,7 @@ def set_deployment_pending_flag(task_id: str, pending: bool = True) -> bool:
         return False
 
 
+@wrap_tool_output_optimization
 def push_to_github(
     commit_message: str,
     branch: str = "main",
@@ -288,6 +290,7 @@ def push_to_github(
         return f"Error executing git operations: {e}"
 
 
+@wrap_tool_output_optimization
 def pull_latest_changes(branch: str = "main") -> str:
     """
     Pulls the latest changes from the remote repository.
@@ -315,6 +318,7 @@ def pull_latest_changes(branch: str = "main") -> str:
         return f"Error pulling changes: {e}"
 
 
+@wrap_tool_output_optimization
 def get_git_status(project_name: Optional[str] = None) -> str:
     """
     Returns a comprehensive summary of the git repository status.

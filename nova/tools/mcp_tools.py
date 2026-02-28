@@ -1,7 +1,9 @@
 from nova.tools.mcp_registry import mcp_registry
 from typing import List, Dict, Optional
+from nova.tools.context_optimizer import wrap_tool_output_optimization
 
 
+@wrap_tool_output_optimization
 def add_mcp_server(
     name: str,
     transport: str = "stdio",
@@ -25,11 +27,13 @@ def add_mcp_server(
     return mcp_registry.register_server(name, transport, command, args, url, env)
 
 
+@wrap_tool_output_optimization
 def remove_mcp_server(name: str) -> str:
     """Removes an MCP server from the registry."""
     return mcp_registry.remove_server(name)
 
 
+@wrap_tool_output_optimization
 def list_registered_mcp_servers() -> str:
     """Lists all registered MCP servers and their configurations."""
     servers = mcp_registry.list_servers()

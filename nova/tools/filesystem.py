@@ -2,6 +2,7 @@ import os
 import json
 import logging
 from nova.tools.project_manager import get_active_project
+from nova.tools.context_optimizer import wrap_tool_output_optimization
 
 
 def _resolve_path(path: str) -> str:
@@ -25,6 +26,7 @@ def _resolve_path(path: str) -> str:
     return os.path.abspath(path)
 
 
+@wrap_tool_output_optimization
 def read_file(filepath: str) -> str:
     """Reads the content of a file."""
     try:
@@ -35,6 +37,7 @@ def read_file(filepath: str) -> str:
         return f"Error reading file {filepath}: {e}"
 
 
+@wrap_tool_output_optimization
 def write_file(filepath: str, content: str) -> str:
     """Writes content to a file."""
     try:
@@ -48,6 +51,7 @@ def write_file(filepath: str, content: str) -> str:
         return f"Error writing file {filepath}: {e}"
 
 
+@wrap_tool_output_optimization
 def list_files(path: str = ".") -> str:
     """Lists files in a directory."""
     try:
@@ -59,6 +63,7 @@ def list_files(path: str = ".") -> str:
         return f"Error listing files in {path}: {e}"
 
 
+@wrap_tool_output_optimization
 def delete_file(filepath: str) -> str:
     """Deletes a file."""
     try:
@@ -71,6 +76,7 @@ def delete_file(filepath: str) -> str:
         return f"Error deleting file {filepath}: {e}"
 
 
+@wrap_tool_output_optimization
 def create_directory(path: str) -> str:
     """Creates a directory."""
     try:

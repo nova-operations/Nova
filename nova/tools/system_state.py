@@ -16,10 +16,12 @@ from nova.db.deployment_models import (
     TaskStatus as ActiveTaskStatus,
 )
 from nova.tools.scheduler import ScheduledTask, TaskType
+from nova.tools.context_optimizer import wrap_tool_output_optimization
 
 logger = logging.getLogger(__name__)
 
 
+@wrap_tool_output_optimization
 def get_system_state() -> str:
     """
     Returns a unified summary of Nova's current system state.

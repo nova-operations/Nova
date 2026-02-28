@@ -38,6 +38,7 @@ from sqlalchemy.orm import sessionmaker
 from nova.db.base import Base
 from nova.db.engine import get_db_engine, get_session_factory
 from dotenv import load_dotenv
+from nova.tools.context_optimizer import wrap_tool_output_optimization
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -559,6 +560,7 @@ def _validate_cron(schedule: str) -> bool:
 # ============================================================================
 
 
+@wrap_tool_output_optimization
 def add_scheduled_task(
     task_name: str,
     schedule: str,
@@ -667,6 +669,7 @@ def add_scheduled_task(
         db.close()
 
 
+@wrap_tool_output_optimization
 def list_scheduled_tasks() -> str:
     """List all scheduled tasks."""
 
@@ -702,6 +705,7 @@ def list_scheduled_tasks() -> str:
         db.close()
 
 
+@wrap_tool_output_optimization
 def get_scheduled_task(task_name: str) -> str:
     """Get details of a specific scheduled task."""
 
@@ -751,6 +755,7 @@ def get_scheduled_task(task_name: str) -> str:
         db.close()
 
 
+@wrap_tool_output_optimization
 def update_scheduled_task(
     task_name: str,
     schedule: Optional[str] = None,
@@ -841,6 +846,7 @@ def update_scheduled_task(
         db.close()
 
 
+@wrap_tool_output_optimization
 def remove_scheduled_task(task_name: str) -> str:
     """Remove a scheduled task."""
 
@@ -874,6 +880,7 @@ def remove_scheduled_task(task_name: str) -> str:
         db.close()
 
 
+@wrap_tool_output_optimization
 def pause_scheduled_task(task_name: str) -> str:
     """Pause a scheduled task."""
 
@@ -905,6 +912,7 @@ def pause_scheduled_task(task_name: str) -> str:
         db.close()
 
 
+@wrap_tool_output_optimization
 def resume_scheduled_task(task_name: str) -> str:
     """Resume a paused scheduled task."""
 
@@ -942,6 +950,7 @@ def resume_scheduled_task(task_name: str) -> str:
         db.close()
 
 
+@wrap_tool_output_optimization
 def run_scheduled_task_now(task_name: str) -> str:
     """Manually trigger a scheduled task immediately."""
 
@@ -1057,6 +1066,7 @@ def sync_scheduler_with_db() -> str:
         db.close()
 
 
+@wrap_tool_output_optimization
 def start_scheduler() -> str:
     """Start the scheduler background service."""
     try:
@@ -1109,6 +1119,7 @@ def start_scheduler() -> str:
         return f"Error: {e}"
 
 
+@wrap_tool_output_optimization
 def stop_scheduler() -> str:
     """Stop the scheduler background service."""
     try:
@@ -1126,6 +1137,7 @@ def stop_scheduler() -> str:
         return f"Error: {e}"
 
 
+@wrap_tool_output_optimization
 def get_scheduler_status() -> str:
     """Get scheduler runtime status."""
     try:

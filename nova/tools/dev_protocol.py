@@ -2,8 +2,10 @@ import subprocess
 import os
 import sys
 from typing import Optional
+from nova.tools.context_optimizer import wrap_tool_output_optimization
 
 
+@wrap_tool_output_optimization
 def run_protocol(
     commit_message: str, run_full_suite: bool = True, push: bool = False
 ) -> str:

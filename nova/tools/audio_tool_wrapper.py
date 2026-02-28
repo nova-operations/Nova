@@ -7,6 +7,7 @@ import logging
 from typing import Optional
 
 from telegram import Bot
+from nova.tools.context_optimizer import wrap_tool_output_optimization
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ def get_telegram_bot():
     return None
 
 
+@wrap_tool_output_optimization
 async def send_audio_message_tool(
     text: str, chat_id: str, voice: str = "nova", caption: Optional[str] = None
 ) -> str:

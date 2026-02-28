@@ -14,10 +14,12 @@ from sqlalchemy.orm import sessionmaker
 
 from nova.db.engine import get_session_factory
 from nova.db.deployment_models import ProjectContext
+from nova.tools.context_optimizer import wrap_tool_output_optimization
 
 logger = logging.getLogger(__name__)
 
 
+@wrap_tool_output_optimization
 def set_active_project(name: str) -> str:
     """
     Sets the active project in Nova's context. Only one project can be active at a time.
@@ -56,6 +58,7 @@ def set_active_project(name: str) -> str:
         session.close()
 
 
+@wrap_tool_output_optimization
 def add_or_update_project(name: str, absolute_path: str, git_remote: str = "") -> str:
     """
     Registers a new project or updates an existing one in Nova's database.
@@ -115,6 +118,7 @@ def add_or_update_project(name: str, absolute_path: str, git_remote: str = "") -
         session.close()
 
 
+@wrap_tool_output_optimization
 def get_active_project() -> str:
     """
     Returns the currently active project context as a JSON string.
@@ -152,6 +156,7 @@ def get_active_project() -> str:
         session.close()
 
 
+@wrap_tool_output_optimization
 def list_projects() -> str:
     """
     Lists all registered projects in the database.

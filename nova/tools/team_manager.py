@@ -17,6 +17,7 @@ from nova.tools.streaming_utils import (
     StreamingContext,
     strip_all_formatting,
 )
+from nova.tools.context_optimizer import wrap_tool_output_optimization
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,7 @@ def create_specialist_agent(
     )
 
 
+@wrap_tool_output_optimization
 async def run_team_task(
     task_name: str,
     specialist_names: List[str],

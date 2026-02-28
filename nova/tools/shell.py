@@ -8,6 +8,7 @@ from nova.tools.streaming_utils import (
     _get_telegram_bot,
     strip_all_formatting,
 )
+from nova.tools.context_optimizer import wrap_tool_output_optimization
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,7 @@ async def _stream_shell_output(
         return error_msg
 
 
+@wrap_tool_output_optimization
 def execute_shell_command(
     command: str, chat_id: Optional[str] = None, subagent_name: str = "Shell"
 ) -> str:
