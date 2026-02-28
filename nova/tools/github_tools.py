@@ -2,7 +2,32 @@ import os
 import subprocess
 import logging
 import sys
+import json
 from typing import Optional, List, Tuple
+
+from nova.tools.project_manager import get_active_project
+
+
+def get_repo_dir(project_name: Optional[str] = None) -> str:
+    """
+    Returns the absolute path of the repository.
+    Prioritizes the active project from the database, then falls back to defaults.
+    """
+    try:
+        active_json = get_active_project()
+        active_data = json.loads(active_json)
+
+        if active_data.get("status") == "success":
+            # If a specific project was requested, we could look it up here.
+            # For now, we return the active project's path.
+            return active_data.get("absolute_path")
+    except Exception as e:
+        logging.warning(f"Failed to get active project: {e}")
+
+    repo_dir = "/app/data/nova_repo"
+    if not os.path.exists(repo_dir):
+        repo_dir = os.getcwd()
+    return repo_dir
 
 
 def check_active_tasks() -> Tuple[bool, str]:
@@ -111,10 +136,7 @@ def push_to_github(
     Returns:
         A status message indicating success or failure.
     """
-    # Prioritize the persistent repo path
-    repo_dir = "/app/data/nova_repo"
-    if not os.path.exists(repo_dir):
-        repo_dir = os.getcwd()  # Fallback
+    repo_dir = get_repo_dir()
 
     # 1. Run tests unless skipped
     if not skip_tests:
@@ -271,9 +293,7 @@ def pull_latest_changes(branch: str = "main") -> str:
     Pulls the latest changes from the remote repository.
     Uses git reset --hard to ensures the local repo exactly matches the remote.
     """
-    repo_dir = "/app/data/nova_repo"
-    if not os.path.exists(repo_dir):
-        repo_dir = os.getcwd()
+    repo_dir = get_repo_dir()
 
     try:
         # 1. Fetch
@@ -293,3 +313,45 @@ def pull_latest_changes(branch: str = "main") -> str:
             return f"Error resetting to remote: {result.stderr}"
     except Exception as e:
         return f"Error pulling changes: {e}"
+
+
+def get_git_status(project_name: Optional[str] = None) -> str:
+    """
+    Returns a comprehensive summary of the git repository status.
+    Includes current branch, uncommitted changes, and the last 5 commits.
+    """
+    repo_dir = get_repo_dir(project_name)
+
+    if not os.path.exists(os.path.join(repo_dir, ".git")):
+        return f"Error: {repo_dir} is not a Git repository."
+
+    try:
+        # Get status
+        status_res = subprocess.run(
+            ["git", "status", "-sb"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        status_output = status_res.stdout.strip()
+
+        # Get recent commits
+        log_res = subprocess.run(
+            ["git", "log", "-n", "5", "--oneline"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        log_output = log_res.stdout.strip()
+
+        summary = f"📁 **Repository:** `{repo_dir}`\n\n"
+        summary += f"🌿 **Current Status:**\n```\n{status_output}\n```\n\n"
+        summary += f"📜 **Recent Commits:**\n```\n{log_output}\n```"
+
+        return summary
+    except subprocess.CalledProcessError as e:
+        return f"Git command failed: {e.stderr}"
+    except Exception as e:
+        return f"Error retrieving git status: {e}"

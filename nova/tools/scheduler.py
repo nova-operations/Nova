@@ -10,6 +10,7 @@ Supports notification via Telegram Webhooks and full CRUD operations.
 """
 
 import os
+import sys
 import asyncio
 import logging
 import httpx
@@ -61,6 +62,7 @@ class TaskType(str, enum.Enum):
     TEAM_TASK = "team_task"
     SILENT = "silent"
     ALERT = "alert"
+    WATCHER = "watcher"
 
 
 class ScheduledTask(Base):
@@ -351,6 +353,71 @@ async def _execute_alert_task(
     return "success", f"Alert sent: {alert_message}"
 
 
+async def _execute_watcher_task(
+    job_id: int, script_content: str, target_chat_id: Optional[str] = None
+):
+    """Execute a WATCHER task and parse its output for __NOVA_TRIGGER__."""
+    logger.info(f"Executing watcher task: {job_id}")
+
+    if not script_content:
+        return "failure", "No script content provided for watcher."
+
+    try:
+        import tempfile
+        import subprocess
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(script_content)
+            temp_path = f.name
+
+        try:
+            result = subprocess.run(
+                [sys.executable, temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=120,
+            )
+
+            output = result.stdout.strip()
+
+            if "__NOVA_TRIGGER__" in output:
+                # Extract payload: anything after __NOVA_TRIGGER__
+                parts = output.split("__NOVA_TRIGGER__", 1)
+                payload = (
+                    parts[1].strip() if len(parts) > 1 else "Triggered without payload"
+                )
+
+                # Trigger reinvigorate_nova
+                from nova.telegram_bot import reinvigorate_nova
+
+                chat_id = target_chat_id or os.getenv("TELEGRAM_CHAT_ID")
+
+                if chat_id:
+                    trigger_msg = f"🔍 **Watcher Alert (Job {job_id}):**\n{payload}"
+                    asyncio.create_task(reinvigorate_nova(chat_id, trigger_msg))
+                    return "success", f"Triggered: {payload}"
+                else:
+                    logger.warning(
+                        "Watcher triggered but no chat_id available to notify"
+                    )
+                    return "success", "Triggered but no chat_id"
+
+            if result.returncode != 0:
+                logger.error(f"Watcher script failed: {result.stderr}")
+                return "failure", result.stderr
+
+            return "success", "Completed silently (no trigger)"
+
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+    except Exception as e:
+        logger.error(f"Failed to execute watcher task: {e}")
+        return "failure", str(e)
+
+
 def _cleanup_orphaned_job(job_id: str):
     """Remove an orphaned APScheduler job that has no corresponding DB task."""
     try:
@@ -444,6 +511,15 @@ async def _job_executor(job_id: int):
                 return
             status, output = await _execute_alert_task(
                 job_id, task.subagent_task, target_chat_id=target_chat_id
+            )
+
+        elif task.task_type == TaskType.WATCHER:
+            script_content = task.subagent_instructions or task.subagent_task
+            if not script_content:
+                logger.error(f"No script content for watcher task: {job_id}")
+                return
+            status, output = await _execute_watcher_task(
+                job_id, script_content, target_chat_id=target_chat_id
             )
 
         else:

@@ -52,6 +52,17 @@ class QueueStatus(enum.Enum):
     CANCELLED = "cancelled"
 
 
+class TaskType(str, enum.Enum):
+    """Task type enumeration."""
+
+    STANDALONE_SH = "standalone_sh"
+    SUBAGENT_RECALL = "subagent_recall"
+    TEAM_TASK = "team_task"
+    SILENT = "silent"
+    ALERT = "alert"
+    WATCHER = "watcher"
+
+
 class TaskStatus(enum.Enum):
     """Status of active tasks."""
 
@@ -59,6 +70,24 @@ class TaskStatus(enum.Enum):
     PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class ProjectContext(Base):
+    """
+    Table for tracking multiple projects/environments managed by Nova.
+    """
+
+    __tablename__ = "project_contexts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), unique=True, nullable=False, index=True)
+    absolute_path = Column(String(1024), nullable=False)
+    git_remote = Column(String(512), nullable=True)
+    is_active = Column(Boolean, default=False)
+    metadata_json = Column(Text, nullable=True)  # flexible JSON storage for state
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class DeploymentQueue(Base):

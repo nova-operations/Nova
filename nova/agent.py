@@ -39,7 +39,7 @@ from nova.tools.subagent import (
     get_subagent_result,
     kill_subagent,
 )
-from nova.tools.github_tools import push_to_github, pull_latest_changes
+from nova.tools.github_tools import push_to_github, pull_latest_changes, get_git_status
 from nova.tools.scheduler import (
     add_scheduled_task,
     list_scheduled_tasks,
@@ -72,6 +72,13 @@ from nova.tools.specialist_registry import save_specialist_config, list_speciali
 from nova.tools.team_manager import run_team_task
 from nova.tools.audio_tool_wrapper import send_audio_message
 from nova.tools.dev_protocol import run_protocol
+from nova.tools.project_manager import (
+    add_or_update_project,
+    set_active_project,
+    get_active_project,
+    list_projects,
+)
+from nova.tools.system_state import get_system_state
 from nova.logger import setup_logging
 
 try:
@@ -324,6 +331,7 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
         kill_subagent,
         push_to_github,
         pull_latest_changes,
+        get_git_status,
         start_heartbeat_monitor,
         stop_heartbeat_monitor,
         register_subagent_for_heartbeat,
@@ -350,6 +358,11 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
         run_team_task,
         send_audio_message,
         run_protocol,
+        add_or_update_project,
+        set_active_project,
+        get_active_project,
+        list_projects,
+        get_system_state,
     ]
 
     # Append the cached MCP toolkits
