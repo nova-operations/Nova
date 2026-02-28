@@ -15,6 +15,8 @@ from nova.tools.scheduler import (
 from nova.tools.mcp_tools import add_mcp_server, list_registered_mcp_servers
 
 # Mapping for dynamic agent tool assignment
+from nova.tools.web_search import web_search
+
 TOOL_REGISTRY = {
     "shell": execute_shell_command,
     "read_file": read_file,
@@ -28,6 +30,7 @@ TOOL_REGISTRY = {
     "scheduler_list": list_scheduled_tasks,
     "mcp_add": add_mcp_server,
     "mcp_list": list_registered_mcp_servers,
+    "web_search": web_search,
 }
 
 

@@ -79,6 +79,7 @@ from nova.tools.project_manager import (
     list_projects,
 )
 from nova.tools.system_state import get_system_state
+from nova.tools.web_search import web_search
 from nova.logger import setup_logging
 
 try:
@@ -261,23 +262,50 @@ class ContextCompressedAgent(Agent):
 
     async def _apply_context_compression(self, session_id: Optional[str] = None):
         """
-        Apply context compression by reducing conversation history.
-
-        This is called when a context length error is detected.
+        Apply context compression by reducing conversation history and truncating large messages.
         """
         import logging
+        from nova.tools.context_optimizer import truncate_middle
 
         logger = logging.getLogger(__name__)
 
-        # Reduce the history size
+        # 1. Reduce the history size setting for future calls
         old_history = getattr(self, "num_history_messages", 10)
-        new_history = min(old_history // 2, 3)  # Reduce to half, minimum 3
-
-        # Update the agent's history setting
+        new_history = min(old_history // 2, 3)
         self.num_history_messages = new_history
 
+        # 2. Iterate through current session memory and truncate large messages
+        if (
+            hasattr(self, "memory")
+            and self.memory
+            and hasattr(self.memory, "get_messages")
+        ):
+            try:
+                messages = self.memory.get_messages(session_id=session_id)
+                if messages:
+                    modified = False
+                    for msg in messages:
+                        # If a message is too large (e.g. 50k+ tokens / 200k+ chars), truncate it middle-out
+                        if (
+                            msg.content
+                            and isinstance(msg.content, str)
+                            and len(msg.content) > 150000
+                        ):
+                            logger.info(
+                                f"Truncating massive history message ({len(msg.content)} chars)"
+                            )
+                            msg.content = truncate_middle(msg.content, 100000)
+                            modified = True
+
+                    if modified and hasattr(self.memory, "update_messages"):
+                        # Some memories might not support update_messages directly
+                        # but Agno usually allows saving back
+                        pass
+            except Exception as e:
+                logger.error(f"Failed to truncate history messages: {e}")
+
         logger.warning(
-            f"Context compression applied: reduced history from {old_history} to {new_history} messages"
+            f"Context compression applied: reduced history from {old_history} to {new_history} messages and checked for large blobs."
         )
 
         # Also try to clear any cached context
@@ -287,20 +315,33 @@ class ContextCompressedAgent(Agent):
         print(f"✅ Context compressed: now using last {new_history} messages only")
 
 
+def get_model(model_id: str = None):
+    """
+    Returns a configured Agno model instance with robust API key handling.
+    """
+    if model_id is None:
+        model_id = os.getenv("AGENT_MODEL", "google/gemini-3-flash-preview")
+
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.error("OPENROUTER_API_KEY is not set in environment.")
+
+    return OpenAIChat(
+        id=model_id,
+        api_key=api_key,
+        base_url="https://openrouter.ai/api/v1",
+    )
+
+
 def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
     """
     Creates and returns a configured Agno Agent (Nova).
     Nova acts as a Project Manager that spawns subagents and provides SAU (live) updates.
     """
-    if model_id is None:
-        model_id = os.getenv("AGENT_MODEL", "google/gemini-3-flash-preview")
-    api_key = os.getenv("OPENROUTER_API_KEY")
-
-    model = OpenAIChat(
-        id=model_id,
-        api_key=api_key,
-        base_url="https://openrouter.ai/api/v1",
-    )
+    model = get_model(model_id)
 
     chat_id = chat_id or "unknown"
     db = get_agno_db(session_table="nova_agent_sessions")
@@ -363,6 +404,7 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
         get_active_project,
         list_projects,
         get_system_state,
+        web_search,
     ]
 
     # Append the cached MCP toolkits

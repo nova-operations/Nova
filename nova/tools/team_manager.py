@@ -32,12 +32,9 @@ def create_specialist_agent(
         logger.error(f"Available specialists: {list_specialists()}")
         return None
 
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    model = OpenAIChat(
-        id=config["model"],
-        api_key=api_key,
-        base_url="https://openrouter.ai/api/v1",
-    )
+    from nova.agent import get_model
+
+    model = get_model(config["model"])
 
     # Tool assignment
     tools = get_tools_by_names(config["tools"])

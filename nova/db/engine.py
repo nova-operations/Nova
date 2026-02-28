@@ -28,18 +28,31 @@ def get_db_url():
     return database_url
 
 
+_engine = None
+_session_factory = None
+
+
 def get_db_engine():
-    """Creates a SQLAlchemy engine."""
-    url = get_db_url()
-    if url.startswith("postgresql"):
-        return create_engine(url, pool_pre_ping=True, echo=False)
-    return create_engine(url)
+    """Creates/returns a cached SQLAlchemy engine."""
+    global _engine
+    if _engine is None:
+        url = get_db_url()
+        if url.startswith("postgresql"):
+            _engine = create_engine(
+                url, pool_pre_ping=True, pool_size=5, max_overflow=10, echo=False
+            )
+        else:
+            _engine = create_engine(url)
+    return _engine
 
 
 def get_session_factory():
-    """Returns a sessionmaker instance."""
-    engine = get_db_engine()
-    return sessionmaker(bind=engine)
+    """Returns a cached sessionmaker instance."""
+    global _session_factory
+    if _session_factory is None:
+        engine = get_db_engine()
+        _session_factory = sessionmaker(bind=engine)
+    return _session_factory
 
 
 def get_agno_db(session_table: str):

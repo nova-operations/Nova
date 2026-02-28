@@ -150,12 +150,10 @@ async def create_subagent(
     silent: bool = False,
 ) -> str:
     subagent_id = str(uuid.uuid4())
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    subagent_model = os.getenv("SUBAGENT_MODEL", "minimax/minimax-m2.5")
+    from nova.agent import get_model
 
-    model = OpenAIChat(
-        id=subagent_model, api_key=api_key, base_url="https://openrouter.ai/api/v1"
-    )
+    subagent_model = os.getenv("SUBAGENT_MODEL", "minimax/minimax-m2.5")
+    model = get_model(subagent_model)
 
     database_url = os.getenv("DATABASE_URL")
     if database_url and (

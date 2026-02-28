@@ -60,13 +60,9 @@ class ContextOptimizer:
 
     async def _create_summary_model(self):
         """Create a lightweight model for summarization."""
-        from agno.models.openai import OpenAIChat
+        from nova.agent import get_model
 
-        return OpenAIChat(
-            id=self.model_id,
-            api_key=self.api_key,
-            base_url=self.base_url,
-        )
+        return get_model(self.model_id)
 
     async def summarize_content(self, content: str, max_tokens: int = 4000) -> str:
         """

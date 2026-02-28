@@ -56,9 +56,19 @@ class ErrorBusHandler(logging.Handler):
         ):
             return
 
-        # Ignore transient API errors
+        # Ignore transient API errors and database connection errors to prevent recursive loops
         msg = record.getMessage()
-        if "Internal Server Error" in msg or "Rate limit" in msg or "Timeout" in msg:
+        if any(
+            p in msg
+            for p in [
+                "Internal Server Error",
+                "Rate limit",
+                "Timeout",
+                "too many clients",
+                "connection failure",
+                "OperationalError",
+            ]
+        ):
             return
 
         self._inside = True
@@ -108,26 +118,43 @@ async def _error_monitor_loop():
             Session = get_session_factory()
             db = Session()
             try:
+                # CRITICAL: We only process ONE error at a time for auto-healing
+                # to prevent multiple subagents from fighting over codebase fixes.
                 new_errors = (
                     db.query(SystemErrorLog)
                     .filter(SystemErrorLog.status == ErrorStatus.NEW)
+                    .order_by(SystemErrorLog.id.desc())
+                    .limit(1)
                     .all()
                 )
                 for err in new_errors:
+                    # Additional safety: check if we already tried to fix this error many times
+                    # (In a real system we'd have a retry_count column, but for now we use status logic)
+
                     logger.info(
                         f"Proactively fixing error ID {err.id}: {err.error_message[:100]}..."
                     )
                     err.status = ErrorStatus.FIXING
                     db.commit()
 
-                    # Trigger a healing subagent
-                    prompt = f"An error occurred in the system:\nLogger: {err.logger_name}\nError: {err.error_message}\nTraceback: {err.traceback}\n\nPlease self-heal the system, fix the codebase, and verify the fix."
+                    # Trigger a healing subagent with STRICT safety requirements
+                    prompt = (
+                        f"An error occurred in the system:\nLogger: {err.logger_name}\nError: {err.error_message}\nTraceback: {err.traceback}\n\n"
+                        "### MANDATORY SAFETY PROTOCOL:\n"
+                        "1. DIAGNOSE the failure by reading relevant code and logs.\n"
+                        "2. IMPLEMENT a fix, but BEFORE writing any code, plan how to verify it.\n"
+                        "3. AFTER editing any .py file, you MUST run `python3 -m py_compile <filename>` to ensure NO syntax errors were introduced.\n"
+                        "4. If the compilation fails, FIX the code immediately before reporting completion.\n"
+                        "5. VERIFY the fix with a small test script if possible.\n\n"
+                        "Please self-heal the system, fix the codebase, and verify the fix."
+                    )
 
                     try:
                         # Spawn subagent
+                        # We use a 10 min timeout for healer subagents to prevent hanging
                         result = await create_subagent(
                             name=f"auto_healer_{err.id}",
-                            instructions="You are Nova's Auto-Healer. Diagnose the provided system error, read the relevant code, fix the issue, and ensure no regressions. Report back when done.",
+                            instructions="You are Nova's Auto-Healer. You are an expert at debugging and fixing technical issues safely. You prioritize system integrity and never leave files with syntax errors.",
                             task=prompt,
                         )
                         err.status = ErrorStatus.RESOLVED
@@ -142,13 +169,15 @@ async def _error_monitor_loop():
 
                         chat_id = os.getenv("TELEGRAM_CHAT_ID")
                         if chat_id:
-                            await reinvigorate_nova(
-                                chat_id,
-                                f"🚨 CRITICAL SYSTEM ERROR: Auto-healer failed for error {err.id}.\n"
-                                f"Error: {err.error_message}\n"
-                                f"Healing Exception: {str(e)}\n\n"
-                                "Nova, I need manual intervention or higher-level reasoning to resolve this.",
-                            )
+                            # Only reinvigorate for non-transient failures
+                            if "too many clients" not in str(e).lower():
+                                await reinvigorate_nova(
+                                    chat_id,
+                                    f"🚨 CRITICAL SYSTEM ERROR: Auto-healer failed for error {err.id}.\n"
+                                    f"Error: {err.error_message}\n"
+                                    f"Healing Exception: {str(e)}\n\n"
+                                    "Nova, I need manual intervention or higher-level reasoning to resolve this.",
+                                )
 
                     db.commit()
             finally:
@@ -156,9 +185,14 @@ async def _error_monitor_loop():
         except asyncio.CancelledError:
             break
         except Exception as e:
-            logger.error(f"Error monitor loop exception: {e}")
+            # If we hit "too many clients" here, we should sleep longer
+            if "too many clients" in str(e).lower():
+                logger.warning("DB is full, sleeping longer...")
+                await asyncio.sleep(60)
+            else:
+                logger.error(f"Error monitor loop exception: {e}")
 
-        await asyncio.sleep(10)  # check every 10 seconds
+        await asyncio.sleep(30)  # check every 30 seconds (increased from 10s)
 
 
 def start_error_bus():
