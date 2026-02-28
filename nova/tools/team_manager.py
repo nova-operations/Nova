@@ -131,27 +131,26 @@ async def run_team_task(
             team_instructions = """## MANDATORY LIVE UPDATES (SAU) - REAL-TIME MODE:
 This team MUST use SAU streaming updates for all progress reporting.
 The header format is: [SAU: {team_name}]
-- Report key milestones as they occur.
-- DO NOT stream every line of output or every internal thought.
+- Report ONLY key milestones (initialization, tool use, findings).
 - You can commit code, but you cannot push to remote. Nova PM handles all pushes.
 """
         else:
             team_instructions = "## QUIET MODE: Do NOT stream progress updates. Only return the final result."
 
+        from nova.agent import get_model
+
+        team_model = get_model()
+
         team = Team(
             name=task_name,
             members=members,
+            model=team_model,
             description=f"Dynamic Team for: {task_name}",
             instructions=team_instructions,
             markdown=False,
         )
 
         subagent_id = f"team_{task_name}_{asyncio.get_event_loop().time():.0f}"
-
-        # Heartbeat monitoring DISABLED - SAU is mandatory
-        logger.info(
-            f"Team task '{task_name}' created - SAU live updates enabled (heartbeat disabled)"
-        )
 
         # Store in global tracking
         SUBAGENTS[subagent_id] = {
@@ -169,22 +168,13 @@ The header format is: [SAU: {team_name}]
                 chat_id, f"Team: {task_name}", auto_complete=False, silent=silent
             ) as stream:
                 try:
-                    if not silent:
-                        await stream.send(f"Initializing {len(members)} specialists...")
-
-                    if not silent:
-                        # Stream each step as it happens
-                        for i, member in enumerate(members):
-                            await stream.send(
-                                f"Starting specialist {i+1}/{len(members)}: {member.name}..."
-                            )
-                        # Each specialist will send its own SAU updates
-
+                    # Execute team task - specialists report their own progress
                     response = await team.arun(task_description)
 
                     SUBAGENTS[subagent_id]["status"] = "completed"
                     SUBAGENTS[subagent_id]["result"] = response.content
 
+                    # Clear completion message
                     await stream.send("Team task completed successfully!")
 
                     # Ensure final result is delivered
@@ -194,6 +184,7 @@ The header format is: [SAU: {team_name}]
                         f"Team Result: {response.content[:3500]}",
                         chat_id,
                         f"Team: {task_name}",
+                        silent=silent,
                     )
 
                 except Exception as e:
@@ -201,7 +192,6 @@ The header format is: [SAU: {team_name}]
                     SUBAGENTS[subagent_id]["result"] = str(e)
                     await stream.send(f"Team task failed: {str(e)}", msg_type="error")
 
-                    # PROACTIVE RECOVERY: Wake up Nova
                     if chat_id:
                         from nova.telegram_bot import reinvigorate_nova
 
@@ -211,26 +201,10 @@ The header format is: [SAU: {team_name}]
                             )
                         )
 
-        if chat_id and not silent:
-            # Send minimal notification that team is starting
-            # The StreamingContext will handle the detailed updates
-            from nova.telegram_bot import notify_user
-
-            asyncio.create_task(
-                notify_user(
-                    chat_id,
-                    f"Starting Team Task: {task_name} ({len(members)} specialists)",
-                )
-            )
-
-            # Send SAU start notification
-            asyncio.create_task(
-                send_streaming_start(chat_id, f"Team: {task_name}", silent=silent)
-            )
-
+        # Launch the runner - all notifications are inside _team_runner's StreamingContext
         asyncio.create_task(_team_runner())
 
-        return f"Team task '{task_name}' started with {len(members)} specialists. ID: {subagent_id}"
+        return f"Team task '{task_name}' launched. ID: {subagent_id}"
 
     except Exception as e:
         return f"Error launching team task: {e}"

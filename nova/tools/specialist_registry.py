@@ -149,7 +149,7 @@ When researching:
 - Provide pros and cons of different approaches
 - Include code examples when relevant
 - Summarize for technical audience""",
-        "tools": ["read_file", "execute_shell_command", "list_files"],
+        "tools": ["web_search", "read_file", "execute_shell_command", "list_files"],
     },
     {
         "name": "Tester",
@@ -212,6 +212,16 @@ def seed_default_specialists() -> str:
                 )
                 session.add(new_spec)
                 seeded.append(spec["name"])
+            else:
+                # Update existing specialist to match code/defaults
+                existing.role = spec["role"]
+                existing.instructions = spec["instructions"]
+                existing.tools = spec["tools"]
+                # Don't overwrite the model if it was manually customized
+                # but ensure it's set if missing
+                if not existing.model:
+                    existing.model = os.getenv("SUBAGENT_MODEL", "minimax/minimax-m2.5")
+                seeded.append(f"{spec['name']} (sync)")
 
         if seeded:
             session.commit()
