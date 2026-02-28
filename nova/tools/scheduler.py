@@ -542,6 +542,18 @@ async def _job_executor(job_id: int):
 
     except Exception as e:
         logger.error(f"Job execution failed: {e}")
+        # PROACTIVE RECOVERY: Wake up Nova if a scheduled job hits a code/system error
+        chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        if chat_id:
+            from nova.telegram_bot import reinvigorate_nova
+
+            asyncio.create_task(
+                reinvigorate_nova(
+                    chat_id,
+                    f"🚨 Scheduler Job Failed (ID: {job_id}): {str(e)}\n"
+                    "Please check the scheduler logic or database schema.",
+                )
+            )
     finally:
         db.close()
 

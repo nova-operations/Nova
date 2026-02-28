@@ -80,6 +80,7 @@ def create_specialist_agent(
         db=db,
         markdown=False,
         add_history_to_context=True,
+        add_datetime_to_context=True,
     )
 
 
@@ -148,6 +149,7 @@ The header format is: [SAU: {team_name}]
             description=f"Dynamic Team for: {task_name}",
             instructions=team_instructions,
             markdown=False,
+            add_datetime_to_context=True,  # Ensure team knows the current date
         )
 
         subagent_id = f"team_{task_name}_{asyncio.get_event_loop().time():.0f}"
@@ -164,18 +166,16 @@ The header format is: [SAU: {team_name}]
         # Run in background via task with SAU updates
         async def _team_runner():
             # Create SAU streaming context for the team
+            # We set silent=True for the context to suppress Task Started / Completed messages
             async with StreamingContext(
-                chat_id, f"Team: {task_name}", auto_complete=False, silent=silent
+                chat_id, f"Team: {task_name}", auto_complete=False, silent=True
             ) as stream:
                 try:
-                    # Execute team task - specialists report their own progress
+                    # Execute team task - specialists report their own progress if not silent
                     response = await team.arun(task_description)
 
                     SUBAGENTS[subagent_id]["status"] = "completed"
                     SUBAGENTS[subagent_id]["result"] = response.content
-
-                    # Clear completion message
-                    await stream.send("Team task completed successfully!")
 
                     # Ensure final result is delivered
                     from nova.tools.streaming_utils import send_live_update

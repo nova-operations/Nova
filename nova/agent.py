@@ -503,6 +503,7 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None):
         tools=agent_tools,
         markdown=False,
         add_history_to_context=True,
+        add_datetime_to_context=True,  # Added for date awareness
         update_memory_on_run=True,
         cache_session=True,
     )
