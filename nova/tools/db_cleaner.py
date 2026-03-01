@@ -11,11 +11,19 @@ logger = logging.getLogger(__name__)
 
 def wipe_all_database_tables():
     """
-    Destructive operation: Truncates ALL tables in the database.
-    This includes Agno session tables, specialist tables, and application tables.
+    Destructive operation: Truncates conversation history and session tables.
+    PRESERVES system config tables: specialist_configs, scheduled_tasks, apscheduler_jobs.
     """
     engine = get_db_engine()
     metadata = MetaData()
+
+    # Tables that MUST NOT be wiped — they hold system configuration, not history
+    PROTECTED_TABLES = {
+        "specialist_configs",
+        "scheduled_tasks",
+        "apscheduler_jobs",
+        "deployment_queue",  # Railway deployment state
+    }
 
     try:
         with engine.begin() as conn:
@@ -33,7 +41,9 @@ def wipe_all_database_tables():
                 rows = conn.execute(query).fetchall()
 
                 table_list = [
-                    f'"{row.table_schema}"."{row.table_name}"' for row in rows
+                    f'"{row.table_schema}"."{row.table_name}"'
+                    for row in rows
+                    if row.table_name not in PROTECTED_TABLES
                 ]
 
                 if not table_list:
@@ -47,7 +57,7 @@ def wipe_all_database_tables():
 
                 count = len(table_list)
                 logger.info(f"Truncated {count} tables across all schemas.")
-                return f"Successfully wiped {count} tables (including 'ai' and 'public' schemas)."
+                return f"Successfully wiped {count} tables (preserved: specialist_configs, scheduled_tasks)."
 
             else:
                 # SQLite: Reflect and delete (SQLite only has 'main')

@@ -99,6 +99,11 @@ class ErrorBusHandler(logging.Handler):
                 "Message is not modified",
                 "not modified: specified new message content",
                 "callback_handler error",
+                # Model/Agno conversation errors — self-resolve on next call
+                "tool_calls must be followed by tool messages",
+                "Non-retryable model provider error",
+                "Provider returned error",
+                "tool_call_ids did not have response messages",
             ]
         ):
             return

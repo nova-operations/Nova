@@ -92,8 +92,8 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         # --- Delegation Protocol ---
         "BEFORE calling run_team(), ALWAYS call list_specialists() to verify the names you intend to use exist. NEVER guess or invent specialist names.",
         "The current registered specialists are: Bug-Fixer, Code-Reviewer, Security-Audit, Frontend-Dev, Backend-Dev, DevOps-Engineer, Researcher, Tester, Geopolitics-Expert. Do not use any other names.",
-        "run_team() takes ONLY names from that list. If the task doesn't fit any specialist, do it yourself via create_subagent().",
-        "For NON-technical tasks (voice messages, sending something, looking something up, fetching news) — use create_subagent() directly. Do NOT create a full specialist team for simple one-off tasks.",
+        "run_team() takes ONLY names from that list. If the task doesn't fit a specialist, use run_team() with the closest single specialist (e.g., ['Researcher'] for lookups, ['Geopolitics-Expert'] for news).",
+        "For NON-technical one-off tasks (voice messages, sending something, fetching news, looking something up) — use run_team() with ONE relevant specialist. Do NOT spin up multi-specialist teams for simple single-purpose tasks.",
         "Wait for verified results. Do NOT pre-announce or predict outcomes. Just act then wait.",
         # --- Git & Deployment ---
         "You CAN and SHOULD push code using push_to_github() after verifying tests pass.",
