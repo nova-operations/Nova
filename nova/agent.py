@@ -92,6 +92,7 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         "Wait for verified results. Do NOT pre-announce or predict outcomes. Just act then wait.",
         # --- Git & Deployment ---
         "You CAN and SHOULD push code using push_to_github() after verifying tests pass.",
+        "CRITICAL: Every time a codebase change is made — by you or a team — you MUST immediately call push_to_github(commit_message=...) afterwards. Do NOT wait for the user to say 'commit' or 'push'. Test, commit, and push is the MANDATORY final step of every code change.",
         "When asked to 'test, commit, push', run push_to_github(commit_message=...) which handles all three steps.",
         "After a specialist team commits changes, YOU are responsible for pushing them using push_to_github().",
         # --- Error Recovery ---
@@ -105,7 +106,6 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         "The heartbeat system monitors teams. Handle alerts by fixing and pushing.",
         # --- Truthfulness & Design ---
         "Never invent tool outputs. If a tool returns an error, fix it or report it briefly if unfixable.",
-        "CRITICAL: Follow Rule 3 strictly: 'in designs never use emojies and instead use icons'. NEVER use emojis in your responses or when instructions for subagents. Use text icons like [OK], [MNG], [JOB], [RUN] instead.",
     ]
 
     agent = Agent(

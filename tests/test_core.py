@@ -84,15 +84,17 @@ async def test_agent_initialization():
 
 
 def test_agent_core_tools():
-    """Nova should have run_team and orchestration tools, not execution tools."""
+    """Nova should have run_team, orchestration tools, and git tools for self-deployment."""
     with patch("nova.agent.get_agno_db", return_value=MagicMock()):
         agent = get_agent()
         tool_names = [getattr(t, "__name__", type(t).__name__) for t in agent.tools]
         assert "run_team" in tool_names
         assert "add_scheduled_task" in tool_names
-        # Should NOT have raw coding tools
+        # Nova CAN push code (self-deployment capability)
+        assert "push_to_github" in tool_names
+        assert "get_git_status" in tool_names
+        # Should NOT have raw execution tools
         assert "create_subagent" not in tool_names
-        assert "push_to_github" not in tool_names
 
 
 def test_db_migration(clean_db):
