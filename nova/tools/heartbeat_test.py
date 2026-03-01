@@ -21,7 +21,6 @@ from nova.tools.heartbeat import (
     get_heartbeat_monitor,
     start_heartbeat_monitor,
     get_heartbeat_status,
-    get_heartbeat_detailed_status,
     HEARTBEAT_INTERVAL_SECONDS,
     HEARTBEAT_WARNING_THRESHOLD,
 )
@@ -47,7 +46,7 @@ async def test_heartbeat_system():
     print(f"   Interval: {HEARTBEAT_INTERVAL_SECONDS}s")
     print(f"   Warning Threshold: {HEARTBEAT_WARNING_THRESHOLD}s")
     assert HEARTBEAT_INTERVAL_SECONDS == 30
-    assert HEARTBEAT_WARNING_THRESHOLD == 120
+    assert HEARTBEAT_WARNING_THRESHOLD == 300  # Updated to 5 min
     print("   ✅ Configuration correct")
 
     # Test 2: Start Monitor
@@ -92,7 +91,7 @@ async def test_heartbeat_system():
 
     # Test 5: Detailed Status
     print("\n📋 Test 5: Detailed Status")
-    detailed = get_heartbeat_detailed_status()
+    detailed = monitor.get_detailed_status()
     assert detailed["running"] is True
     assert detailed["monitored_subagents"] == 3
     print(f"   Monitored: {detailed['monitored_subagents']} subagents")

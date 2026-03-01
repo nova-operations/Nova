@@ -12,3 +12,4 @@ apscheduler
 croniter
 fpdf
 edge-tts
+tavily-python

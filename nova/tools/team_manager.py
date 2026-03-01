@@ -1,3 +1,10 @@
+"""
+Team Manager — Multi-Project Parallel Team Orchestration
+
+Nova uses this to spawn specialist teams using agno's native Team class.
+Multiple teams can run concurrently for different projects or parallel tasks.
+"""
+
 import os
 import asyncio
 import logging
@@ -5,206 +12,199 @@ from typing import List, Optional, Dict
 from agno.agent import Agent
 from agno.team import Team
 from agno.models.openai import OpenAIChat
+from agno.tools.tavily import TavilyTools
 from nova.db.engine import get_agno_db
 from nova.tools.specialist_registry import get_specialist_config, list_specialists
 from nova.tools.registry import get_tools_by_names
 from nova.tools.subagent import SUBAGENTS
-from nova.tools.streaming_utils import (
-    send_streaming_start,
-    send_streaming_progress,
-    send_streaming_complete,
-    send_streaming_error,
-    StreamingContext,
-    strip_all_formatting,
-)
-from nova.tools.context_optimizer import wrap_tool_output_optimization
+from nova.tools.streaming_utils import send_live_update, strip_all_formatting
 
 logger = logging.getLogger(__name__)
 
+# ─────────────────────────────────────────────
+# Singleton model factory (reused from agent.py)
+# ─────────────────────────────────────────────
 
-def create_specialist_agent(
-    name: str, session_id: Optional[str] = None, silent: bool = False
-) -> Optional[Agent]:
-    """Instantiate a specialist agent from DB configuration."""
+
+def _get_model(model_id: str = None) -> OpenAIChat:
+    if model_id is None:
+        model_id = os.getenv("AGENT_MODEL", "google/gemini-2.5-flash-preview")
+    return OpenAIChat(
+        id=model_id,
+        api_key=os.getenv("OPENROUTER_API_KEY"),
+        base_url="https://openrouter.ai/api/v1",
+    )
+
+
+def _get_subagent_model(model_id: str = None) -> OpenAIChat:
+    if model_id is None:
+        model_id = os.getenv("SUBAGENT_MODEL", "minimax/minimax-m2.5")
+    return OpenAIChat(
+        id=model_id,
+        api_key=os.getenv("OPENROUTER_API_KEY"),
+        base_url="https://openrouter.ai/api/v1",
+    )
+
+
+# ─────────────────────────────────────────────
+# Specialist instantiation
+# ─────────────────────────────────────────────
+
+
+def _create_specialist(name: str) -> Optional[Agent]:
+    """Instantiate a specialist Agent from DB config."""
     config = get_specialist_config(name)
     if not config:
-        logger.error(f"Specialist '{name}' not found in registry.")
-        logger.error(f"Available specialists: {list_specialists()}")
+        logger.error(f"Specialist '{name}' not found. Available: {list_specialists()}")
         return None
 
-    from nova.agent import get_model
+    tools = get_tools_by_names(config.get("tools", []))
 
-    model = get_model(config["model"])
-
-    # Tool assignment
-    tools = get_tools_by_names(config["tools"])
-
-    if silent:
-        # Filter out streaming tools to prevent progress spam
-        streaming_tool_names = [
-            "send_streaming_start",
-            "send_streaming_progress",
-            "send_streaming_complete",
-            "send_streaming_error",
-        ]
-        tools = [
-            t for t in tools if getattr(t, "__name__", "") not in streaming_tool_names
-        ]
-
-    # DB setup for persistent specialist memory
+    # Always add Tavily as the first tool (if key available)
+    tavily_key = os.getenv("TAVILY_API_KEY")
+    if tavily_key:
+        tools = [TavilyTools(api_key=tavily_key)] + tools
     db = get_agno_db(session_table=f"specialist_{name}_sessions")
 
-    # MANDATORY SAU INSTRUCTIONS for specialists
-    sau_instructions = ""
-    if not silent:
-        sau_instructions = """## MANDATORY LIVE UPDATES (SAU) - REAL-TIME MODE:
-- YOU MUST use the streaming system to report milestones IMMEDIATELY as you progress.
-- Use the `send_streaming_start`, `send_streaming_progress`, and `send_streaming_complete` functions.
-- The header format for all updates is: [SAU: {agent_name}]
-- Report ONLY key milestones: initialization, tool execution, major results, completion.
-- DO NOT stream every line of output or every internal thought.
-- This is NOT optional - it is the MANDATORY default for all reporting.
-"""
-    else:
-        sau_instructions = "## QUIET MODE: Do NOT stream progress updates. Only return the final result."
-
-    # Inject SAU instructions into the specialist's existing instructions
-    enhanced_instructions = sau_instructions + "\n\n" + config.get("instructions", "")
+    instructions = (
+        f"You are {config['role']}. Be concise and accurate. "
+        f"Only report what you verified. "
+        f"Never hallucinate tool outputs.\n\n" + config.get("instructions", "")
+    )
 
     return Agent(
         name=config["name"],
         role=config["role"],
-        model=model,
-        instructions=enhanced_instructions,
+        model=_get_subagent_model(config.get("model")),
+        instructions=instructions,
         tools=tools,
         db=db,
         markdown=False,
-        add_history_to_context=True,
+        add_history_to_context=False,  # Keep specialist memory lean
         add_datetime_to_context=True,
+        num_history_runs=2,
     )
 
 
-@wrap_tool_output_optimization
-async def run_team_task(
+# ─────────────────────────────────────────────
+# Core: run_team — Nova's primary delegation tool
+# ─────────────────────────────────────────────
+
+
+async def run_team(
     task_name: str,
     specialist_names: List[str],
     task_description: str,
     chat_id: Optional[str] = None,
-    silent: bool = False,
+    project: Optional[str] = None,
 ) -> str:
     """
-    Creates a dynamic team and runs a task asynchronously.
-    Uses SAU (Subagent Automatic Updates) as the mandatory reporting mechanism.
-    Heartbeat system is DISABLED for team tasks.
+    Spawns a specialist team and runs a task asynchronously.
+    Multiple calls run concurrently — enabling true multi-project parallelism.
 
-    REAL-TIME MODE: Each step is sent as an individual message immediately.
+    Args:
+        task_name: Short descriptive name for this task (e.g. "Fix Login Bug")
+        specialist_names: List of specialist names (e.g. ["Bug-Fixer", "Tester"])
+        task_description: Full task description with context
+        chat_id: Telegram chat ID for live updates
+        project: Optional project name for namespacing
+
+    Returns:
+        Team ID string (task runs in background)
     """
     try:
         # Build specialists
         members = []
-        missing_specialists = []
-
-        for s_name in specialist_names:
-            agent = create_specialist_agent(s_name, silent=silent)
+        missing = []
+        for name in specialist_names:
+            agent = _create_specialist(name)
             if agent:
                 members.append(agent)
             else:
-                missing_specialists.append(s_name)
-                logger.error(f"Failed to create specialist agent: {s_name}")
+                missing.append(name)
 
         if not members:
-            available = list_specialists()
-            error_msg = f"Error: Could not instantiate any specialists for the team."
-            if missing_specialists:
-                error_msg += f" Missing: {missing_specialists}. Available: {available}"
-            logger.error(error_msg)
-            return error_msg
+            return f"Error: Could not instantiate any specialists. Missing: {missing}"
 
-        # If some specialists are missing, log warning but continue
-        if missing_specialists:
-            logger.warning(
-                f"Team '{task_name}' running with reduced members. "
-                f"Missing: {missing_specialists}"
-            )
+        if missing:
+            logger.warning(f"Team '{task_name}' missing specialists: {missing}")
 
-        # Team setup with mandatory SAU instructions
-        if not silent:
-            team_instructions = """## MANDATORY LIVE UPDATES (SAU) - REAL-TIME MODE:
-This team MUST use SAU streaming updates for all progress reporting.
-The header format is: [SAU: {team_name}]
-- Report ONLY key milestones (initialization, tool use, findings).
-- You can commit code, but you cannot push to remote. Nova PM handles all pushes.
-"""
-        else:
-            team_instructions = "## QUIET MODE: Do NOT stream progress updates. Only return the final result."
+        # Namespace by project if provided
+        team_label = f"[{project}] {task_name}" if project else task_name
+        team_id = f"team_{task_name}_{asyncio.get_event_loop().time():.0f}"
 
-        from nova.agent import get_model
-
-        team_model = get_model()
-
+        # Build the agno Team
         team = Team(
-            name=task_name,
+            name=team_label,
             members=members,
-            model=team_model,
-            description=f"Dynamic Team for: {task_name}",
-            instructions=team_instructions,
+            model=_get_model(),
+            description=f"Specialist team for: {team_label}",
+            instructions=[
+                "Coordinate to complete the task. Be concise and accurate.",
+                "Only report verified results. Never hallucinate.",
+                "Delegate subtasks to the most appropriate team member.",
+                "You CANNOT push to remote git. Report completion to Nova instead.",
+            ],
             markdown=False,
-            add_datetime_to_context=True,  # Ensure team knows the current date
+            add_datetime_to_context=True,
         )
 
-        subagent_id = f"team_{task_name}_{asyncio.get_event_loop().time():.0f}"
-
-        # Store in global tracking
-        SUBAGENTS[subagent_id] = {
-            "name": task_name,
-            "status": "running",
+        # Register in global SUBAGENTS dict for heartbeat tracking
+        SUBAGENTS[team_id] = {
+            "name": team_label,
+            "status": "starting",
             "result": None,
             "chat_id": chat_id,
-            "silent": silent,
+            "project": project,
         }
 
-        # Run in background via task with SAU updates
-        async def _team_runner():
-            # Create SAU streaming context for the team
-            # We set silent=True for the context to suppress Task Started / Completed messages
-            async with StreamingContext(
-                chat_id, f"Team: {task_name}", auto_complete=False, silent=True
-            ) as stream:
-                try:
-                    # Execute team task - specialists report their own progress if not silent
-                    response = await team.arun(task_description)
+        async def _run():
+            """Background runner with live updates and error recovery."""
+            try:
+                SUBAGENTS[team_id]["status"] = "running"
 
-                    SUBAGENTS[subagent_id]["status"] = "completed"
-                    SUBAGENTS[subagent_id]["result"] = response.content
-
-                    # Ensure final result is delivered
-                    from nova.tools.streaming_utils import send_live_update
-
+                if chat_id:
                     await send_live_update(
-                        f"Team Result: {response.content[:3500]}",
+                        f"Team '{team_label}' started with {len(members)} specialists.",
                         chat_id,
-                        f"Team: {task_name}",
-                        silent=silent,
+                        team_label,
                     )
 
-                except Exception as e:
-                    SUBAGENTS[subagent_id]["status"] = "failed"
-                    SUBAGENTS[subagent_id]["result"] = str(e)
-                    await stream.send(f"Team task failed: {str(e)}", msg_type="error")
+                response = await team.arun(task_description)
+                result = response.content if response else "No result."
 
-                    if chat_id:
-                        from nova.telegram_bot import reinvigorate_nova
+                SUBAGENTS[team_id]["status"] = "completed"
+                SUBAGENTS[team_id]["result"] = result
 
-                        asyncio.create_task(
-                            reinvigorate_nova(
-                                chat_id, f"Team '{task_name}' failed: {str(e)}"
-                            )
+                if chat_id:
+                    await send_live_update(
+                        f"Done: {strip_all_formatting(result)[:2000]}",
+                        chat_id,
+                        team_label,
+                    )
+
+            except Exception as e:
+                SUBAGENTS[team_id]["status"] = "failed"
+                SUBAGENTS[team_id]["result"] = str(e)
+                logger.error(f"Team '{team_label}' failed: {e}")
+
+                if chat_id:
+                    # Wake Nova for smart recovery decision
+                    from nova.telegram_bot import reinvigorate_nova
+
+                    asyncio.create_task(
+                        reinvigorate_nova(
+                            chat_id,
+                            f"SYSTEM_ALERT: Team '{team_label}' (ID: {team_id}) failed.\n"
+                            f"Error: {str(e)}\n"
+                            f"Task was: {task_description[:500]}\n"
+                            f"Decide: spawn a Bug-Fixer team, or run parallel fix+alternative approach.",
                         )
+                    )
 
-        # Launch the runner - all notifications are inside _team_runner's StreamingContext
-        asyncio.create_task(_team_runner())
-
-        return f"Team task '{task_name}' launched. ID: {subagent_id}"
+        asyncio.create_task(_run())
+        return f"Team '{team_label}' launched. ID: {team_id}. Specialists: {[m.name for m in members]}"
 
     except Exception as e:
-        return f"Error launching team task: {e}"
+        logger.error(f"run_team error: {e}")
+        return f"Error launching team: {e}"

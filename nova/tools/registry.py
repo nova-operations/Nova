@@ -1,3 +1,9 @@
+"""
+Tool Registry — maps string tool names to actual functions.
+Used by the specialist registry to assign tools to agents.
+Each specialist gets: up to 5 domain tools + TavilyTools (auto-added).
+"""
+
 from nova.tools.shell import execute_shell_command
 from nova.tools.filesystem import (
     read_file,
@@ -6,36 +12,48 @@ from nova.tools.filesystem import (
     delete_file,
     create_directory,
 )
-from nova.tools.github_tools import push_to_github, pull_latest_changes
-from nova.tools.scheduler import (
-    add_scheduled_task,
-    list_scheduled_tasks,
-    get_scheduled_task,
-)
-from nova.tools.mcp_tools import add_mcp_server, list_registered_mcp_servers
+from nova.tools.github_tools import push_to_github, pull_latest_changes, get_git_status
+from nova.tools.scheduler import add_scheduled_task, list_scheduled_tasks
 
-# Mapping for dynamic agent tool assignment
-from nova.tools.web_search import web_search
+
+# ─────────────────────────────────────────────
+# All available specialist tools (max 5 per specialist)
+# ─────────────────────────────────────────────
 
 TOOL_REGISTRY = {
-    "shell": execute_shell_command,
+    # Filesystem
     "read_file": read_file,
     "write_file": write_file,
     "list_files": list_files,
     "delete_file": delete_file,
     "create_directory": create_directory,
+    # Shell
+    "shell": execute_shell_command,
+    "execute_shell_command": execute_shell_command,
+    # Git
     "github_push": push_to_github,
     "github_pull": pull_latest_changes,
+    "git_status": get_git_status,
+    # Scheduling (for DevOps specialists)
     "scheduler_add": add_scheduled_task,
     "scheduler_list": list_scheduled_tasks,
-    "mcp_add": add_mcp_server,
-    "mcp_list": list_registered_mcp_servers,
-    "web_search": web_search,
 }
 
 
-def get_tools_by_names(names: list):
-    """Returns a list of tool functions based on names."""
-    if not names:
-        return []
-    return [TOOL_REGISTRY[name] for name in names if name in TOOL_REGISTRY]
+def get_tools_by_names(names: list) -> list:
+    """
+    Returns tool functions by name. Unknown names are skipped with a warning.
+    Note: TavilyTools is added automatically by the specialist builder — do NOT include here.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    tools = []
+    for name in names:
+        if name in TOOL_REGISTRY:
+            tools.append(TOOL_REGISTRY[name])
+        elif name not in ("web_search", "tavily", "web_search_using_tavily"):
+            # Silently ignore tavily references (handled separately), warn for unknown
+            logger.warning(f"Tool '{name}' not found in registry, skipping.")
+    return tools

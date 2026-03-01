@@ -1,12 +1,13 @@
 import pytest
 import os
-import json
-import asyncio
-from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from nova.tools.mcp_registry import mcp_registry
-from nova.tools.specialist_registry import save_specialist_config, get_specialist_config
-from nova.agent import get_agent, get_mcp_toolkits
+from nova.tools.specialist_registry import (
+    save_specialist_config,
+    get_specialist_config,
+    list_specialists,
+)
+from nova.agent import get_agent
 
 
 @pytest.fixture
@@ -40,11 +41,13 @@ def test_mcp_registry(clean_db):
 
 
 def test_specialist_registry(clean_db):
-    name = "Tester"
+    name = "TestSpecialist"
     role = "Unit Test Specialist"
     instructions = "You test code."
 
-    res = save_specialist_config(name, role, instructions)
+    res = save_specialist_config(
+        name, role, instructions, tools=["read_file", "write_file"]
+    )
     assert "saved" in res
 
     config = get_specialist_config(name)
@@ -53,17 +56,46 @@ def test_specialist_registry(clean_db):
     assert config["role"] == role
 
 
+def test_specialist_tool_cap_enforced(clean_db):
+    """Saving a specialist with >5 tools should return an error."""
+    res = save_specialist_config(
+        "OverloadedSpec",
+        "Too many tools",
+        "Instructions",
+        tools=[
+            "read_file",
+            "write_file",
+            "list_files",
+            "shell",
+            "github_push",
+            "github_pull",
+        ],  # 6 tools
+    )
+    assert "Error" in res or "Max" in res
+
+
 @pytest.mark.asyncio
 async def test_agent_initialization():
-    # Test if agent can be initialized without crashing
-    # This will attempt to load MCP tools if they exist in env/db
-    agent = get_agent(chat_id="test_chat")
-    assert agent is not None
-    assert agent.description is not None
+    """Agent can be initialized without crashing."""
+    with patch("nova.agent.get_agno_db", return_value=MagicMock()):
+        agent = get_agent(chat_id="test_chat")
+        assert agent is not None
+        assert agent.description is not None
+
+
+def test_agent_core_tools():
+    """Nova should have run_team and orchestration tools, not execution tools."""
+    with patch("nova.agent.get_agno_db", return_value=MagicMock()):
+        agent = get_agent()
+        tool_names = [getattr(t, "__name__", type(t).__name__) for t in agent.tools]
+        assert "run_team" in tool_names
+        assert "add_scheduled_task" in tool_names
+        # Should NOT have raw coding tools
+        assert "create_subagent" not in tool_names
+        assert "push_to_github" not in tool_names
 
 
 def test_db_migration(clean_db):
-    # Test column existence after migration
     from nova.db.engine import get_db_engine
     from sqlalchemy import inspect
 
@@ -71,54 +103,3 @@ def test_db_migration(clean_db):
     inspector = inspect(engine)
     columns = [c["name"] for c in inspector.get_columns("scheduled_tasks")]
     assert "team_members" in columns
-
-
-@pytest.mark.asyncio
-async def test_multi_mcp_initialization(clean_db):
-    # Register two dummy MCP servers (using streamable-http with fake URLs)
-    mcp_registry.register_server(
-        "mcp1", "streamable-http", url="http://localhost:1234/mcp"
-    )
-    mcp_registry.register_server("mcp2", "stdio", command="python3", args=["--version"])
-
-    # get toolkits
-    toolkits = get_mcp_toolkits()
-
-    # Should have at least the 2 custom ones we just added
-    assert len(toolkits) >= 2
-
-    # Find custom MCPTools
-    from agno.tools.mcp import MCPTools
-
-    all_mcp_tools = [t for t in toolkits if isinstance(t, MCPTools)]
-    assert len(all_mcp_tools) >= 2
-
-    # Since we can't easily check for 'name' on the toolkit anymore (as it's hardcoded to 'MCPTools'),
-    # we'll look for the parameters inside.
-    mcp1_tool = next(
-        (
-            t
-            for t in all_mcp_tools
-            if t.server_params
-            and getattr(t.server_params, "url", None) == "http://localhost:1234/mcp"
-        ),
-        None,
-    )
-    mcp2_tool = next(
-        (
-            t
-            for t in all_mcp_tools
-            if t.server_params
-            and getattr(t.server_params, "command", None) == "python3"
-        ),
-        None,
-    )
-
-    assert mcp1_tool is not None
-    assert mcp2_tool is not None
-    assert mcp1_tool.timeout_seconds == 30
-    assert mcp2_tool.timeout_seconds == 30
-
-    # Finally check agent creation
-    agent = get_agent(chat_id="test_chat")
-    assert agent is not None

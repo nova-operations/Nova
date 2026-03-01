@@ -227,13 +227,16 @@ async def reinvigorate_nova(
     lock = _PROCESSING_LOCKS[cid]
 
     # System-triggered message
-    system_prompt = f"[INTERNAL SYSTEM ALERT]\nA background task has produced the following result/failure:\n---\n{message}\n---\nNova, analyze this background event and decide if you need to take proactive action (e.g. fix a failure, delegate a recovery task, or notify the user)."
+    system_prompt = (
+        f"[SYSTEM_ALERT]\n{message}\n"
+        "Analyze this and decide if you need to take action (fix failure, delegate recovery, notify user)."
+    )
 
-    # Get user id for session tracking
-    whitelist_str = os.getenv("TELEGRAM_USER_WHITELIST", "")
-    if not whitelist_str:
-        return
-    user_id = int(whitelist_str.split(",")[0].strip())
+    # Use configured chat_id or fall back to whitelist
+    user_id = int(
+        os.getenv("TELEGRAM_CHAT_ID")
+        or os.getenv("TELEGRAM_USER_WHITELIST", "").split(",")[0].strip()
+    )
 
     # Trigger a new run in the background
     asyncio.create_task(
@@ -388,7 +391,7 @@ async def handle_message(
     if lock.locked():
         await context.bot.send_message(
             chat_id=chat_id,
-            text="I'm currently processing your previous request. I've noted this and will address it immediately after! 🛰️",
+            text="On it — processing your previous request. Will address this next.",
         )
 
     # Call the core intent processor (which handles its own locking)
@@ -428,25 +431,35 @@ async def post_init(application):
     """Callback to run after the bot starts and the loop is running."""
     from nova.tools.scheduler import initialize_scheduler
     from nova.tools.error_bus import start_error_bus
+    from nova.tools.specialist_registry import seed_default_specialists
 
     try:
         initialize_scheduler()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Scheduler init failed: {e}")
 
     try:
         start_error_bus()
     except Exception as e:
-        print(f"Failed to start error bus: {e}")
+        print(f"Error bus init failed: {e}")
 
+    try:
+        result = seed_default_specialists()
+        print(f"Specialists: {result}")
+    except Exception as e:
+        print(f"Specialist seeding failed: {e}")
+
+    # Heartbeat: callback only fires when there are active agents
     monitor = get_heartbeat_monitor()
 
     def hb_wrapper(report, records):
-        asyncio.create_task(heartbeat_callback(report, records))
+        if records:  # Only notify if there's something to report
+            asyncio.create_task(heartbeat_callback(report, records))
 
     monitor.register_callback(hb_wrapper)
     monitor.start()
-    get_prompt_transformer()
+
+    print("Nova ready: heartbeat active, specialists seeded, scheduler running.")
 
 
 if __name__ == "__main__":

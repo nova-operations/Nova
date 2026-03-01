@@ -22,13 +22,17 @@ from datetime import datetime
 from dataclasses import dataclass, field
 
 from nova.tools.subagent import SUBAGENTS, list_subagents, get_subagent_result
-from nova.tools.context_optimizer import wrap_tool_output_optimization
 
 logger = logging.getLogger(__name__)
 
 # Configuration
 HEARTBEAT_INTERVAL_SECONDS = 30  # Check every 30 seconds
-HEARTBEAT_WARNING_THRESHOLD = 120  # Warn if subagent running > 2 minutes without update
+HEARTBEAT_WARNING_THRESHOLD = (
+    300  # Notify Nova if team running >5 min without completion
+)
+HEARTBEAT_FAILURE_NOTIFIED = (
+    set()
+)  # Track which failures we've already notified Nova about
 
 
 @dataclass
@@ -133,45 +137,91 @@ class HeartbeatMonitor:
         return record
 
     async def _heartbeat_loop(self):
-        """Main heartbeat loop that runs in the background."""
+        """Main heartbeat loop. Actively triggers Nova recovery on failures."""
         logger.info(f"Heartbeat Monitor started (interval: {self.interval}s)")
 
         while self._running:
             try:
-                # Check all registered subagents
                 active_records = []
-
                 for subagent_id in list(self._records.keys()):
                     record = await self._check_subagent(subagent_id)
                     active_records.append(record)
 
-                # Generate heartbeat report
-                report = self._generate_report(active_records)
+                # Smart recovery: notify Nova about failures/timeouts
+                await self._trigger_nova_recovery(active_records)
 
-                # Call all registered callbacks with the report and the record list
+                # Call registered callbacks (e.g. Telegram status updates)
                 for callback in self._callbacks:
                     try:
-                        callback(report, active_records)
+                        callback(self._generate_report(active_records), active_records)
                     except Exception as e:
-                        logger.error(f"Error in heartbeat callback: {e}")
+                        logger.error(f"Heartbeat callback error: {e}")
 
-                # Cleanup completed/failed subagents from records
+                # Cleanup terminal-state records
                 to_remove = [
                     sid
-                    for sid, record in self._records.items()
-                    if record.status
-                    in ["completed", "failed", "cancelled", "not_found"]
+                    for sid, rec in self._records.items()
+                    if rec.status in ("completed", "failed", "cancelled", "not_found")
                 ]
                 for sid in to_remove:
                     del self._records[sid]
 
             except Exception as e:
-                logger.error(f"Error in heartbeat loop: {e}")
+                logger.error(f"Heartbeat loop error: {e}")
 
-            # Wait for next interval
             await asyncio.sleep(self.interval)
 
         logger.info("Heartbeat Monitor stopped")
+
+    async def _trigger_nova_recovery(self, records: list):
+        """Wake Nova when a team fails or has been running too long."""
+        import os
+
+        chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        if not chat_id:
+            return
+
+        try:
+            from nova.telegram_bot import reinvigorate_nova
+        except ImportError:
+            return
+
+        for record in records:
+            sid = record.subagent_id
+
+            # Don't double-notify
+            if sid in HEARTBEAT_FAILURE_NOTIFIED:
+                continue
+
+            elapsed = time.time() - record.start_time
+
+            if record.status == "failed":
+                HEARTBEAT_FAILURE_NOTIFIED.add(sid)
+                result_snippet = (
+                    str(record.result)[:500] if record.result else "(no result)"
+                )
+                asyncio.create_task(
+                    reinvigorate_nova(
+                        chat_id,
+                        f"SYSTEM_ALERT: Team/Agent '{record.name}' FAILED.\n"
+                        f"Error: {result_snippet}\n"
+                        f"Elapsed: {elapsed:.0f}s\n"
+                        f"Decide: spawn Bug-Fixer team, or run parallel fix+alternative.",
+                    )
+                )
+
+            elif record.status == "running" and elapsed > HEARTBEAT_WARNING_THRESHOLD:
+                if not record.warning_issued:
+                    record.warning_issued = True
+                    HEARTBEAT_FAILURE_NOTIFIED.add(sid)
+                    asyncio.create_task(
+                        reinvigorate_nova(
+                            chat_id,
+                            f"SYSTEM_ALERT: Team/Agent '{record.name}' has been running "
+                            f"for {elapsed:.0f}s without completing.\n"
+                            f"Decide: let it continue, kill and retry, or spawn alternative.",
+                        )
+                    )
 
     def _generate_report(self, records: List[HeartbeatRecord]) -> str:
         """Generate a human-readable heartbeat report."""
@@ -263,145 +313,44 @@ def get_heartbeat_monitor() -> HeartbeatMonitor:
 
 
 # =============================================================================
-# PUBLIC API FUNCTIONS (for use as Nova tools)
+# PUBLIC API FUNCTIONS
 # =============================================================================
 
 
-@wrap_tool_output_optimization
 def start_heartbeat_monitor(interval_seconds: int = 30) -> str:
-    """
-    Start the heartbeat monitor to track active subagents.
-
-    Args:
-        interval_seconds: How often to check subagent status (default: 30)
-
-    Returns:
-        Confirmation message
-    """
+    """Start the heartbeat monitor. Auto-registers all running subagents."""
     monitor = get_heartbeat_monitor()
     monitor.interval = interval_seconds
     monitor.start()
-    return f"✅ Heartbeat Monitor started (checking every {interval_seconds}s)"
+    return f"Heartbeat Monitor started (checking every {interval_seconds}s)"
 
 
-@wrap_tool_output_optimization
 def stop_heartbeat_monitor() -> str:
     """Stop the heartbeat monitor."""
     monitor = get_heartbeat_monitor()
-    # Note: This needs to be called from async context
-    return "🛑 Heartbeat Monitor stop requested (will stop on next check)"
+    monitor._running = False
+    return "Heartbeat Monitor stop requested."
 
 
-@wrap_tool_output_optimization
 def register_subagent_for_heartbeat(
     subagent_id: str, name: str, chat_id: Optional[str] = None
 ) -> str:
-    """
-    Register a subagent to be monitored by the heartbeat system.
-
-    Args:
-        subagent_id: The ID of the subagent to monitor
-        name: The name of the subagent
-        chat_id: The Telegram Chat ID to send updates to (optional)
-
-    Returns:
-        Confirmation message
-    """
+    """Register a subagent/team for heartbeat monitoring."""
     monitor = get_heartbeat_monitor()
     monitor.register_subagent(subagent_id, name, chat_id=chat_id)
-    return f"✅ Subagent '{name}' ({subagent_id}) registered for heartbeat monitoring"
+    return f"Registered '{name}' ({subagent_id}) for heartbeat."
 
 
-@wrap_tool_output_optimization
-def unregister_subagent_from_heartbeat(subagent_id: str) -> str:
-    """
-    Remove a subagent from heartbeat monitoring.
-
-    Args:
-        subagent_id: The ID of the subagent to unregister
-
-    Returns:
-        Confirmation message
-    """
-    monitor = get_heartbeat_monitor()
-    monitor.unregister_subagent(subagent_id)
-    return f"🗑️ Subagent ({subagent_id}) unregistered from heartbeat monitoring"
-
-
-@wrap_tool_output_optimization
 def get_heartbeat_status() -> str:
-    """
-    Get the current heartbeat status of all monitored subagents.
-
-    Returns:
-        Formatted status report
-    """
-    monitor = get_heartbeat_monitor()
-    return monitor.get_status()
-
-
-@wrap_tool_output_optimization
-def get_heartbeat_detailed_status() -> Dict:
-    """
-    Get detailed heartbeat status as a dictionary.
-
-    Returns:
-        Detailed status information
-    """
-    monitor = get_heartbeat_monitor()
-    return monitor.get_detailed_status()
-
-
-@wrap_tool_output_optimization
-def auto_register_active_subagents() -> str:
-    """
-    Automatically register all currently running subagents for heartbeat monitoring.
-    Call this when starting a task that spawns multiple subagents.
-
-    Returns:
-        Confirmation message with count
-    """
-    monitor = get_heartbeat_monitor()
-    count = 0
-
-    for subagent_id, data in SUBAGENTS.items():
-        if data.get("status") in ["running", "starting"]:
-            monitor.register_subagent(subagent_id, data.get("name", "unknown"))
-            count += 1
-
-    return f"✅ Auto-registered {count} active subagents for heartbeat monitoring"
-
-
-# =============================================================================
-# INTEGRATION HELPERS
-# =============================================================================
-
-
-async def heartbeat_callback_example(report: str):
-    """
-    Example callback - prints heartbeat report.
-    Replace with actual notification logic (Telegram, etc.)
-    """
-    logger.info(f"HEARTBEAT: {report}")
+    """Get current heartbeat status of all monitored agents."""
+    return get_heartbeat_monitor().get_status()
 
 
 def setup_heartbeat_for_task(subagent_ids: List[str], subagent_names: List[str]) -> str:
-    """
-    Convenience function to setup heartbeat monitoring for a batch of subagents.
-
-    Args:
-        subagent_ids: List of subagent IDs to monitor
-        subagent_names: List of corresponding names
-
-    Returns:
-        Confirmation message
-    """
+    """Convenience: register a batch of subagents for heartbeat monitoring."""
     monitor = get_heartbeat_monitor()
-    monitor.start()  # Ensure monitor is running
-
+    monitor.start()
     for sid, name in zip(subagent_ids, subagent_names):
-        # We try to get chat_id from SUBAGENTS if not provided
         chat_id = SUBAGENTS.get(sid, {}).get("chat_id")
         monitor.register_subagent(sid, name, chat_id=chat_id)
-
-    return f"✅ Heartbeat monitoring setup for {len(subagent_ids)} subagents"
+    return f"Heartbeat monitoring set up for {len(subagent_ids)} agents."
