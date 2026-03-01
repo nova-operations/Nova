@@ -115,6 +115,348 @@ async def delete_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 
+async def manage_tasks_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Slash command to manage scheduled tasks and active subagents."""
+    user_id = update.effective_user.id
+    if not is_authorized(user_id):
+        return
+
+    await _show_manage_menu(update if update.message else update.callback_query)
+
+
+async def _show_manage_menu(source):
+    """Entry point for task management - choose category."""
+    from nova.tools.scheduler import get_session, ScheduledTask
+    from nova.db.deployment_models import ActiveTask, TaskStatus as ATS
+
+    db = get_session()
+    try:
+        sched_count = db.query(ScheduledTask).count()
+        active_count = (
+            db.query(ActiveTask).filter(ActiveTask.status == ATS.RUNNING).count()
+        )
+
+        msg = (
+            "🛠 **Nova Task Manager**\n\n"
+            "Monitor and manage Nova's background operations. "
+            "Choose a category below:"
+        )
+
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    f"📅 Background Jobs ({sched_count})", callback_data="mt_list_scheduled"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"🤖 Active Subagents ({active_count})", callback_data="mt_list_active"
+                )
+            ],
+        ]
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        if hasattr(source, "reply_text"):
+            await source.reply_text(msg, reply_markup=reply_markup, parse_mode="Markdown")
+        else:
+            await source.edit_message_text(
+                msg, reply_markup=reply_markup, parse_mode="Markdown"
+            )
+    finally:
+        db.close()
+
+
+async def _show_tasks_list(source):
+    """Helper to show the list of scheduled tasks with basic info."""
+    from nova.tools.scheduler import get_session, ScheduledTask
+
+    db = get_session()
+    try:
+        tasks = db.query(ScheduledTask).order_by(ScheduledTask.id).all()
+
+        if not tasks:
+            msg = "📅 **Scheduled Tasks**\n\nNo tasks found."
+            if hasattr(source, "reply_text"):
+                await source.reply_text(msg, parse_mode="Markdown")
+            else:
+                await source.edit_message_text(msg, parse_mode="Markdown")
+            return
+
+        msg = f"📅 **Scheduled Tasks ({len(tasks)})**\n\nSelect a task to manage:"
+        keyboard = []
+        for task in tasks:
+            # ScheduledTask status is uppercase RUNNING
+            status_emoji = "🟢" if str(task.status.value).upper() == "RUNNING" else "🟡"
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"{status_emoji} {task.task_name}",
+                        callback_data=f"mt_view:{task.id}",
+                    )
+                ]
+            )
+
+        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="manage_tasks")])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        if hasattr(source, "reply_text"):
+            await source.reply_text(msg, reply_markup=reply_markup, parse_mode="Markdown")
+        else:
+            await source.edit_message_text(
+                msg, reply_markup=reply_markup, parse_mode="Markdown"
+            )
+    finally:
+        db.close()
+
+
+async def _show_task_detail(query, task_id: int):
+    """Show detailed info and management buttons for a task."""
+    from nova.tools.scheduler import get_session, ScheduledTask
+
+    db = get_session()
+    try:
+        task = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
+        if not task:
+            await query.edit_message_text("❌ Task not found.")
+            return
+
+        is_running = str(task.status.value).upper() == "RUNNING"
+        status_emoji = "🟢 RUNNING" if is_running else "🟡 PAUSED"
+
+        msg = (
+            f"🛠 **Task Management: {task.task_name}**\n\n"
+            f"**ID:** `{task.id}`\n"
+            f"**Type:** `{task.task_type}`\n"
+            f"**Status:** {status_emoji}\n"
+            f"**Schedule:** `{task.schedule}`\n"
+            f"**Notifications:** `{'On' if task.notification_enabled else 'Off'}`\n"
+            f"**Target Chat:** `{task.target_chat_id or 'Default'}`\n"
+        )
+
+        if task.last_run:
+            msg += f"**Last Run:** `{task.last_run.strftime('%Y-%m-%d %H:%M:%S')}`\n"
+            msg += f"**Last Result:** `{task.last_status or 'None'}`\n"
+
+        if task.last_output:
+            output_snippet = (
+                task.last_output[:200] + "..."
+                if len(task.last_output) > 200
+                else task.last_output
+            )
+            msg += f"\n**Last Output Snippet:**\n`{output_snippet}`\n"
+
+        keyboard = [
+            [
+                InlineKeyboardButton("🚀 Run Now", callback_data=f"mt_run:{task_id}"),
+            ],
+            [
+                InlineKeyboardButton(
+                    "⏸ Pause" if is_running else "▶️ Resume",
+                    callback_data=f"mt_pause:{task_id}"
+                    if is_running
+                    else f"mt_resume:{task_id}",
+                ),
+                InlineKeyboardButton("🗑 Delete", callback_data=f"mt_del_conf:{task_id}"),
+            ],
+            [InlineKeyboardButton("⬅️ Back to List", callback_data="manage_tasks")],
+        ]
+
+        await query.edit_message_text(
+            msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+        )
+    finally:
+        db.close()
+
+
+async def _show_task_delete_confirm(query, task_id: int):
+    """Show confirmation for task deletion."""
+    from nova.tools.scheduler import get_session, ScheduledTask
+
+    db = get_session()
+    try:
+        task = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
+        if not task:
+            await query.edit_message_text("❌ Task not found.")
+            return
+
+        msg = f"⚠️ **Delete Task: {task.task_name}**\n\nAre you sure you want to permanently remove this scheduled task?"
+        keyboard = [
+            [
+                InlineKeyboardButton("🔥 Confirm Delete", callback_data=f"mt_del:{task_id}"),
+                InlineKeyboardButton("❌ Cancel", callback_data=f"mt_view:{task_id}"),
+            ]
+        ]
+        await query.edit_message_text(
+            msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+        )
+    finally:
+        db.close()
+
+
+async def _handle_task_action(query, task_id: int, action: str):
+    """Dispatch management actions to the scheduler tools."""
+    from nova.tools.scheduler import (
+        get_session,
+        ScheduledTask,
+        run_scheduled_task_now,
+        pause_scheduled_task,
+        resume_scheduled_task,
+        remove_scheduled_task,
+    )
+
+    db = get_session()
+    try:
+        task = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
+        if not task:
+            await query.answer("Task not found.", show_alert=True)
+            return
+
+        task_name = task.task_name
+        result = "Done"
+
+        if action == "run":
+            result = run_scheduled_task_now(task_name)
+        elif action == "pause":
+            result = pause_scheduled_task(task_name)
+        elif action == "resume":
+            result = resume_scheduled_task(task_name)
+        elif action == "delete":
+            result = remove_scheduled_task(task_name)
+
+        await query.answer(result)
+
+        if action == "delete":
+            await _show_tasks_list(query)  # Return to list
+        else:
+            await _show_task_detail(query, task_id)  # Refresh details
+
+    finally:
+        db.close()
+
+
+async def _show_active_tasks_list(query):
+    """List currently running subagents."""
+    from nova.tools.scheduler import get_session
+    from nova.db.deployment_models import ActiveTask, TaskStatus as ATS
+
+    db = get_session()
+    try:
+        tasks = (
+            db.query(ActiveTask).filter(ActiveTask.status == ATS.RUNNING).all()
+        )
+
+        if not tasks:
+            msg = "🤖 **Active Subagents**\n\nNo active subagents running."
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="manage_tasks")]]
+            await query.edit_message_text(
+                msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+            )
+            return
+
+        msg = f"🤖 **Active Subagents ({len(tasks)})**\n\nSelect a subagent to manage:"
+        keyboard = []
+        for task in tasks:
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"🤖 {task.subagent_name} ({task.task_id[:8]})",
+                        callback_data=f"mt_at_view:{task.id}",
+                    )
+                ]
+            )
+
+        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="manage_tasks")])
+        await query.edit_message_text(
+            msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+        )
+    finally:
+        db.close()
+
+
+async def _show_active_task_detail(query, task_id: int):
+    """Show details for an active subagent task."""
+    from nova.tools.scheduler import get_session
+    from nova.db.deployment_models import ActiveTask
+
+    db = get_session()
+    try:
+        task = db.query(ActiveTask).filter(ActiveTask.id == task_id).first()
+        if not task:
+            await query.edit_message_text("❌ Subagent task not found.")
+            return
+
+        msg = (
+            f"🤖 **Subagent Management: {task.subagent_name}**\n\n"
+            f"**Task ID:** `{task.task_id}`\n"
+            f"**Type:** `{task.task_type}`\n"
+            f"**Status:** `{task.status.value}`\n"
+            f"**Started:** `{task.started_at.strftime('%Y-%m-%d %H:%M:%S')}`\n"
+            f"**Progress:** `{task.progress_percentage}%`\n"
+            f"**Description:** `{task.description or 'No desc'}`\n"
+        )
+
+        keyboard = []
+        # ActiveTask status is lowercase running
+        is_running = str(task.status.value).lower() == "running"
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    "⏸ Pause" if is_running else "▶️ Resume",
+                    callback_data=f"mt_at_pause:{task.id}"
+                    if is_running
+                    else f"mt_at_resume:{task.id}",
+                ),
+                InlineKeyboardButton("🛑 Kill / Stop", callback_data=f"mt_at_kill:{task_id}"),
+            ]
+        )
+        keyboard.append(
+            [InlineKeyboardButton("⬅️ Back to List", callback_data="mt_list_active")]
+        )
+
+        await query.edit_message_text(
+            msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+        )
+    finally:
+        db.close()
+
+
+async def _handle_active_task_action(query, task_id: int, action: str):
+    """Handle actions on active subagent tasks."""
+    from nova.tools.scheduler import get_session
+    from nova.db.deployment_models import ActiveTask, TaskStatus as ATS
+    from nova.deployment_task_manager import get_manager
+
+    db = get_session()
+    try:
+        task = db.query(ActiveTask).filter(ActiveTask.id == task_id).first()
+        if not task:
+            await query.answer("Subagent not found.", show_alert=True)
+            return
+
+        tracker = get_manager().task_tracker
+        tid = task.task_id
+
+        if action == "pause":
+            tracker.pause_task(tid)
+            res = "Paused"
+        elif action == "resume":
+            tracker.resume_task(tid)
+            res = "Resumed"
+        elif action == "kill":
+            tracker.unregister_task(tid, {"status": "cancelled", "reason": "User manual stop"})
+            res = "Killed (Unregistered)"
+
+        await query.answer(f"Subagent {res}")
+
+        if action == "kill":
+            await _show_active_tasks_list(query)
+        else:
+            await _show_active_task_detail(query, task_id)
+
+    finally:
+        db.close()
+
+
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles button clicks for confirmations."""
     query = update.callback_query
@@ -135,6 +477,55 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == "cancel_delete_history":
         await query.edit_message_text("❌ Action cancelled. History preserved.")
+
+    elif query.data == "manage_tasks":
+        await _show_manage_menu(query)
+
+    elif query.data == "mt_list_scheduled":
+        await _show_tasks_list(query)
+
+    elif query.data == "mt_list_active":
+        await _show_active_tasks_list(query)
+
+    elif query.data.startswith("mt_view:"):
+        task_id = int(query.data.split(":")[1])
+        await _show_task_detail(query, task_id)
+
+    elif query.data.startswith("mt_at_view:"):
+        task_id = int(query.data.split(":")[1])
+        await _show_active_task_detail(query, task_id)
+
+    elif query.data.startswith("mt_run:"):
+        task_id = int(query.data.split(":")[1])
+        await _handle_task_action(query, task_id, "run")
+
+    elif query.data.startswith("mt_pause:"):
+        task_id = int(query.data.split(":")[1])
+        await _handle_task_action(query, task_id, "pause")
+
+    elif query.data.startswith("mt_resume:"):
+        task_id = int(query.data.split(":")[1])
+        await _handle_task_action(query, task_id, "resume")
+
+    elif query.data.startswith("mt_del_conf:"):
+        task_id = int(query.data.split(":")[1])
+        await _show_task_delete_confirm(query, task_id)
+
+    elif query.data.startswith("mt_del:"):
+        task_id = int(query.data.split(":")[1])
+        await _handle_task_action(query, task_id, "delete")
+
+    elif query.data.startswith("mt_at_pause:"):
+        task_id = int(query.data.split(":")[1])
+        await _handle_active_task_action(query, task_id, "pause")
+
+    elif query.data.startswith("mt_at_resume:"):
+        task_id = int(query.data.split(":")[1])
+        await _handle_active_task_action(query, task_id, "resume")
+
+    elif query.data.startswith("mt_at_kill:"):
+        task_id = int(query.data.split(":")[1])
+        await _handle_active_task_action(query, task_id, "kill")
 
 
 async def heartbeat_callback(report: str, records: List[object]):
@@ -536,6 +927,7 @@ async def post_init(application):
     try:
         commands = [
             BotCommand("start", "Initial greeting and help info"),
+            BotCommand("manage_tasks", "Manage all background jobs and tasks"),
             BotCommand("delete_history", "Wipe all database memory (destructive)"),
         ]
         await application.bot.set_my_commands(commands)
@@ -579,6 +971,7 @@ if __name__ == "__main__":
 
     # Handlers
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("manage_tasks", manage_tasks_cmd))
     application.add_handler(CommandHandler("delete_history", delete_history_cmd))
     application.add_handler(CallbackQueryHandler(callback_handler))
 
