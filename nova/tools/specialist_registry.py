@@ -52,7 +52,7 @@ DEFAULT_SPECIALISTS = [
             "Run `python3 -m py_compile <file>` after every edit to verify no syntax errors. "
             "Report: what the bug was, what you changed, and how you verified it."
         ),
-        "tools": ["read_file", "write_file", "execute_shell_command", "list_files"],
+        "tools": ["read_file", "write_file", "execute_shell_command", "list_files", "git_status"],
     },
     {
         "name": "Code-Reviewer",
@@ -112,6 +112,11 @@ DEFAULT_SPECIALISTS = [
             "write_file",
             "list_files",
             "git_status",
+            "add_scheduled_task",
+            "list_scheduled_tasks",
+            "remove_scheduled_task",
+            "get_system_state",
+            "list_mcp_servers",
         ],
     },
     {
@@ -123,7 +128,7 @@ DEFAULT_SPECIALISTS = [
             "Summarize findings concisely with sources. "
             "Provide pros/cons of alternative approaches."
         ),
-        "tools": ["read_file", "list_files"],
+        "tools": ["web_search", "read_file", "list_files"],
         # web_search via Tavily is added automatically
     },
     {
@@ -146,7 +151,7 @@ DEFAULT_SPECIALISTS = [
             "Provide percentage-based likelihoods for key events. "
             "Be objective, cite sources. No fluff."
         ),
-        "tools": ["read_file"],
+        "tools": ["web_search", "read_file"],
         # web_search via Tavily is added automatically
     },
 ]

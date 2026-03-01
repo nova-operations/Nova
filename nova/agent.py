@@ -25,6 +25,13 @@ from nova.tools.scheduler import (
     list_scheduled_tasks,
     remove_scheduled_task,
 )
+from nova.tools.mcp_tools import (
+    add_mcp_server,
+    remove_mcp_server,
+    list_registered_mcp_servers,
+)
+from nova.tools.audio_tool_wrapper import send_audio_message
+from nova.tools.web_search import web_search
 from nova.tools.project_manager import (
     add_or_update_project,
     list_projects,
@@ -63,6 +70,7 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
 
     agent_tools = [
         TavilyTools(api_key=tavily_api_key) if tavily_api_key else None,
+        web_search,  # Optimized version
         run_team,  # Primary delegation tool
         get_system_state,  # Check running agents/tasks
         push_to_github,  # Commit and push code changes
@@ -75,6 +83,10 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         set_active_project,  # Switch active project
         save_specialist_config,  # Define/update specialists
         list_specialists,  # See available specialists
+        add_mcp_server,  # MCP management
+        remove_mcp_server,  # MCP management
+        list_registered_mcp_servers,  # MCP management
+        send_audio_message,  # Speak to user
         execute_shell_command,  # Emergency fallback only
     ]
     # Filter out None values (in case Tavily key missing)

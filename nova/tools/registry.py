@@ -14,7 +14,21 @@ from nova.tools.filesystem import (
     create_directory,
 )
 from nova.tools.github_tools import push_to_github, pull_latest_changes, get_git_status
-from nova.tools.scheduler import add_scheduled_task, list_scheduled_tasks
+from nova.tools.scheduler import (
+    add_scheduled_task,
+    list_scheduled_tasks,
+    remove_scheduled_task,
+    pause_scheduled_task,
+    resume_scheduled_task,
+)
+from nova.tools.web_search import web_search
+from nova.tools.audio_tool_wrapper import send_audio_message
+from nova.tools.mcp_tools import (
+    add_mcp_server,
+    remove_mcp_server,
+    list_registered_mcp_servers,
+)
+from nova.tools.system_state import get_system_state
 
 
 # ─────────────────────────────────────────────
@@ -45,10 +59,30 @@ TOOL_REGISTRY = {
     "github_push": push_to_github,
     "github_pull": pull_latest_changes,
     "git_status": get_git_status,
+    # Web Search (optimized)
+    "web_search": web_search,
+    "google_search": web_search,
+    "search": web_search,
+    "get_latest_news": web_search,
+    "search_news": web_search,
+    # Audio/TTS
+    "send_audio_message": send_audio_message,
+    "voice_summary": send_audio_message,
+    "send_voice": send_audio_message,
+    # MCP
+    "add_mcp_server": add_mcp_server,
+    "remove_mcp_server": remove_mcp_server,
+    "list_mcp_servers": list_registered_mcp_servers,
+    # System State
+    "get_system_state": get_system_state,
     # Scheduling (for DevOps specialists)
     "add_scheduled_task": add_scheduled_task,
     "scheduler_add": add_scheduled_task,
     "scheduler_list": list_scheduled_tasks,
+    "remove_scheduled_task": remove_scheduled_task,
+    "scheduler_remove": remove_scheduled_task,
+    "pause_scheduled_task": pause_scheduled_task,
+    "resume_scheduled_task": resume_scheduled_task,
 }
 
 
