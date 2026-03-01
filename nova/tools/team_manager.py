@@ -96,7 +96,6 @@ def _create_specialist(name: str) -> Optional[Agent]:
         add_history_to_context=True,
         add_datetime_to_context=True,
         learning=True,
-        update_memory_on_run=True,  # Write memories after each run — visible to all agents
         num_history_runs=4,
     )
 
@@ -177,7 +176,6 @@ async def run_team(
             markdown=False,
             add_datetime_to_context=True,
             learning=True,
-            update_memory_on_run=True,  # Team-level shared memory writes
         )
 
         # Register in global SUBAGENTS dict for heartbeat tracking

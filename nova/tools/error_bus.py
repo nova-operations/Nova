@@ -60,7 +60,7 @@ class ErrorBusHandler(logging.Handler):
         import re
         msg = record.getMessage()
         if re.search(
-            r"(Function [\w:\-]+ not found|Could not run function \w+|Missing required argument)",
+            r"(Function [\w:\-]+ not found|Could not run function [\w_]+|Missing required argument|validation error for run_team|Unexpected keyword argument)",
             msg,
         ):
             logging.getLogger("nova.tools.error_bus").warning(

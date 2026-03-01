@@ -121,7 +121,6 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         add_history_to_context=True,
         add_datetime_to_context=True,
         learning=True,
-        update_memory_on_run=True,  # Write memories to shared pool after every run
         num_history_runs=6,
     )
 
