@@ -149,7 +149,7 @@ async def delete_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     keyboard = [
         [
             InlineKeyboardButton(
-                "[DEL] Confirm Delete", callback_data="confirm_delete_history"
+                "[DEL] Wipe History", callback_data="confirm_delete_history"
             ),
             InlineKeyboardButton("[X] Cancel", callback_data="cancel_delete_history"),
         ]
@@ -157,8 +157,32 @@ async def delete_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        "[!] WARNING: This will permanently delete ALL database history, agent memories, and session data. Are you absolutely sure?",
+        "[!] **Wipe Conversation History**\n\nThis will permanently delete agent memories and session data. \n\nSystems (scheduled tasks, specialist configs) will be preserved.",
         reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+
+async def factory_reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Slash command to trigger full factory reset."""
+    user_id = update.effective_user.id
+    if not is_authorized(user_id):
+        return
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "[☢️] FACTORY RESET", callback_data="confirm_factory_reset"
+            ),
+            InlineKeyboardButton("[X] Cancel", callback_data="cancel_delete_history"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "[☢️] **NUCLEAR WARNING: FACTORY RESET**\n\nThis deletes **EVERYTHING**:\n- All conversation history\n- All specialist configurations\n- All scheduled tasks\n- All project records\n\nThis cannot be undone. System will return to 'zero' state.",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
     )
 
 
@@ -543,13 +567,21 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             from nova.tools.db_cleaner import wipe_all_database_tables
 
             # Check if content changed before editing
-            if _content_changed(query, "[DEL] Wiping all history... please wait."):
-                await query.edit_message_text("[DEL] Wiping all history... please wait.")
-            result = wipe_all_database_tables()
+            if _content_changed(query, "[DEL] Wiping history... please wait."):
+                await query.edit_message_text("[DEL] Wiping history... please wait.")
+            result = wipe_all_database_tables(force_all=False)
+            await _safe_edit_message(query, f"[DONE] {result}")
+
+        elif query.data == "confirm_factory_reset":
+            from nova.tools.db_cleaner import wipe_all_database_tables
+
+            if _content_changed(query, "[☢️] NUKE IN PROGRESS... please wait."):
+                await query.edit_message_text("[☢️] NUKE IN PROGRESS... please wait.")
+            result = wipe_all_database_tables(force_all=True)
             await _safe_edit_message(query, f"[DONE] {result}")
 
         elif query.data == "cancel_delete_history":
-            await _safe_edit_message(query, "[x] Action cancelled. History preserved.")
+            await _safe_edit_message(query, "[x] Action cancelled. Data preserved.")
 
         elif query.data == "manage_tasks":
             await _show_manage_menu(query)
@@ -823,11 +855,6 @@ async def process_nova_intent(
             agent = get_agent(chat_id=str(chat_id))
             session_id = str(user_id)
 
-            # Subagent monitoring
-            conversation_history = get_conversation_history(chat_id=str(chat_id))
-            if tool_call_id in response:
-                conversation_history.append({"role": "tool", "content": response.content, "tool_call_id": tool_call_id})
-                save_conversation_history(chat_id=str(chat_id), history=conversation_history)
             from nova.tools.subagent import SUBAGENTS as ACTIVE_SUBAGENTS
 
             active_subs = [
@@ -1040,7 +1067,8 @@ async def post_init(application):
         commands = [
             BotCommand("start", "Initial greeting and help info"),
             BotCommand("manage_tasks", "Manage all background jobs and tasks"),
-            BotCommand("delete_history", "Wipe all database memory (destructive)"),
+            BotCommand("delete_history", "Wipe conversation memories (Preserves specialists)"),
+            BotCommand("factory_reset", "Wipe EVERYTHING (Nuclear reset)"),
         ]
         await application.bot.set_my_commands(commands)
         print("Nova command menu updated.")
@@ -1085,6 +1113,8 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("manage_tasks", manage_tasks_cmd))
     application.add_handler(CommandHandler("delete_history", delete_history_cmd))
+    application.add_handler(CommandHandler("reset", delete_history_cmd))
+    application.add_handler(CommandHandler("factory_reset", factory_reset_cmd))
     application.add_handler(CallbackQueryHandler(callback_handler))
 
     # Any message type

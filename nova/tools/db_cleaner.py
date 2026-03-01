@@ -9,21 +9,21 @@ from nova.db.engine import get_db_engine
 logger = logging.getLogger(__name__)
 
 
-def wipe_all_database_tables():
+def wipe_all_database_tables(force_all: bool = False):
     """
     Destructive operation: Truncates conversation history and session tables.
-    PRESERVES system config tables: specialist_configs, scheduled_tasks, apscheduler_jobs.
+    PRESERVES system config tables by default, unless force_all=True.
     """
     engine = get_db_engine()
     metadata = MetaData()
 
-    # Tables that MUST NOT be wiped — they hold system configuration, not history
+    # Tables that are preserved by default but wiped if force_all=True
     PROTECTED_TABLES = {
         "specialist_configs",
         "scheduled_tasks",
         "apscheduler_jobs",
         "deployment_queue",  # Railway deployment state
-    }
+    } if not force_all else set()
 
     try:
         with engine.begin() as conn:
@@ -56,21 +56,29 @@ def wipe_all_database_tables():
                 conn.execute(text(truncate_query))
 
                 count = len(table_list)
-                logger.info(f"Truncated {count} tables across all schemas.")
-                return f"Successfully wiped {count} tables (preserved: specialist_configs, scheduled_tasks)."
+                logger.info(f"Truncated {count} tables across all schemas (force_all={force_all}).")
+                msg = f"Successfully wiped {count} tables."
+                if not force_all:
+                    msg += " (preserved: specialist_configs, scheduled_tasks)"
+                else:
+                    msg += " (FACTORY RESET COMPLETE)"
+                return msg
 
             else:
                 # SQLite: Reflect and delete (SQLite only has 'main')
                 metadata.reflect(bind=engine)
+                wiped_count = 0
                 for table in reversed(metadata.sorted_tables):
+                    if not force_all and table.name in PROTECTED_TABLES:
+                        continue
                     conn.execute(text(f'DELETE FROM "{table.name}";'))
                     conn.execute(
                         text(f"DELETE FROM sqlite_sequence WHERE name='{table.name}';")
                     )
+                    wiped_count += 1
                 conn.execute(text("VACUUM;"))
-                count = len(metadata.sorted_tables)
-                logger.info(f"Wiped {count} SQLite tables.")
-                return f"Successfully wiped {count} tables."
+                logger.info(f"Wiped {wiped_count} SQLite tables (force_all={force_all}).")
+                return f"Successfully wiped {wiped_count} tables."
 
     except Exception as e:
         logger.error(f"Failed to wipe database: {e}")

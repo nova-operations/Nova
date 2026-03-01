@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 def _get_model(model_id: str = None) -> OpenAIChat:
     if model_id is None:
-        model_id = os.getenv("AGENT_MODEL", "google/gemini-2.5-flash-preview")
+        model_id = os.getenv("AGENT_MODEL", "anthropic/claude-opus-4.6")
     return OpenAIChat(
         id=model_id,
         api_key=os.getenv("OPENROUTER_API_KEY"),
@@ -137,6 +137,7 @@ async def run_team(
     try:
         # Validate ALL specialist names FIRST — fail fast with clear error so Nova can retry
         from nova.tools.specialist_registry import list_specialists
+
         members = []
         missing = []
         for name in specialist_names:
@@ -223,9 +224,13 @@ async def run_team(
                             commit_message=f"fix: {task_name} - auto-push after team completion",
                             skip_tests=False,
                         )
-                        logger.info(f"Auto-push after team '{team_label}': {push_result}")
+                        logger.info(
+                            f"Auto-push after team '{team_label}': {push_result}"
+                        )
                 except Exception as push_err:
-                    logger.warning(f"Auto-push failed for team '{team_label}': {push_err}")
+                    logger.warning(
+                        f"Auto-push failed for team '{team_label}': {push_err}"
+                    )
 
                 if chat_id:
                     await send_live_update(

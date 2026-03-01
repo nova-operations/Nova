@@ -8,8 +8,14 @@ class TestSpecialistRegistry(unittest.TestCase):
         self.assertIn("saved", result.lower())
 
     def test_get_specialist_config(self):
+        # Ensure Researcher exists (seed if missing)
         config = get_specialist_config("Researcher")
-        self.assertIsNotNone(config)
+        if config is None:
+             from nova.tools.specialist_registry import seed_default_specialists
+             seed_default_specialists()
+             config = get_specialist_config("Researcher")
+             
+        self.assertIsNotNone(config, "Specialist 'Researcher' should exist after seeding")
         self.assertEqual(config['name'], "Researcher")
 
     def test_list_specialists(self):

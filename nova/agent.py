@@ -40,7 +40,7 @@ setup_logging()
 def get_model(model_id: str = None) -> OpenAIChat:
     """Returns a configured model via OpenRouter."""
     if model_id is None:
-        model_id = os.getenv("AGENT_MODEL", "google/gemini-2.5-flash-preview")
+        model_id = os.getenv("AGENT_MODEL", "anthropic/claude-opus-4.6")
     api_key = os.getenv("OPENROUTER_API_KEY")
     return OpenAIChat(
         id=model_id,
