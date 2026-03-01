@@ -163,13 +163,6 @@ async def run_team(
             try:
                 SUBAGENTS[team_id]["status"] = "running"
 
-                if chat_id:
-                    await send_live_update(
-                        f"Team '{team_label}' started with {len(members)} specialists.",
-                        chat_id,
-                        team_label,
-                    )
-
                 response = await team.arun(task_description)
                 result = response.content if response else "No result."
 
@@ -178,7 +171,7 @@ async def run_team(
 
                 if chat_id:
                     await send_live_update(
-                        f"Done: {strip_all_formatting(result)[:2000]}",
+                        strip_all_formatting(result)[:2000],
                         chat_id,
                         team_label,
                     )

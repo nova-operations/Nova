@@ -49,6 +49,8 @@ class ErrorBusHandler(logging.Handler):
             "nova.tools.error_bus",
             "nova.tools.subagent",
             "nova.tools.scheduler",
+            "nova.tools.team_manager",
+            "nova.tools.heartbeat",
             "httpx",
             "telegram",
             "agno",
@@ -153,12 +155,12 @@ async def _error_monitor_loop():
                     )
 
                     try:
-                        # Spawn subagent
-                        # We use a 10 min timeout for healer subagents to prevent hanging
+                        # Spawn healer silently — it should fix the issue, not spam the chat
                         result = await create_subagent(
                             name=f"auto_healer_{err.id}",
                             instructions="You are Nova's Auto-Healer. You are an expert at debugging and fixing technical issues safely. You prioritize system integrity and never leave files with syntax errors.",
                             task=prompt,
+                            silent=True,
                         )
                         err.status = ErrorStatus.RESOLVED
                         logger.info(f"Auto-healer finished for error {err.id}.")

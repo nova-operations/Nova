@@ -91,19 +91,13 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
     ) as stream:
         try:
             SUBAGENTS[subagent_id]["status"] = "running"
-            if not silent:
-                await stream.send("Analysis in progress...")
 
             # Execute agent task
             try:
-                # We use stream=True so the agent itself can report progress steps
                 response = await agent.arun(instruction)
             except Exception as e:
                 error_msg = str(e)
                 if any(p in error_msg.lower() for p in ["context", "token", "400"]):
-                    await stream.send(
-                        "Context limit reached. Retrying with compressed state..."
-                    )
                     agent.num_history_messages = 1
                     if hasattr(agent, "memory"):
                         agent.memory.clear()
@@ -115,12 +109,10 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             SUBAGENTS[subagent_id]["result"] = result
             SUBAGENTS[subagent_id]["status"] = "completed"
 
-            # SEND FINAL RESULT via SAU
-            # We send it via send_live_update directly to ensure it's delivered even in silent mode
+            # Send final result — always deliver, even in silent mode
             from nova.tools.streaming_utils import send_live_update
 
-            await send_live_update(f"Result summary: {result[:3500]}", chat_id, name)
-            await send_streaming_complete(chat_id, name, silent=silent)
+            await send_live_update(result[:3500], chat_id, name)
 
             task_tracker.unregister_task(subagent_id, {"status": "completed"})
 
