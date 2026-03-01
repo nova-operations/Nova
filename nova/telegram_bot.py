@@ -3,7 +3,7 @@ import logging
 import asyncio
 import tempfile
 from typing import List, Optional, Any
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
@@ -493,6 +493,53 @@ async def post_init(application):
         print(f"Specialists: {result}")
     except Exception as e:
         print(f"Specialist seeding failed: {e}")
+
+    # Update Bot Identity (Name, Descriptions, and Profile Picture)
+    try:
+        # Set Bot Name
+        await application.bot.set_my_name(name="Nova")
+
+        # Set Short Description (shown on the bot's profile and in sharing)
+        await application.bot.set_my_short_description(
+            short_description="Nova - Advanced Agentic AI Assistant for coding, automation, and system management."
+        )
+
+        # Set Description (shown in the "What can this bot do?" section)
+        await application.bot.set_my_description(
+            description="I am Nova, an advanced self-improving AI agent. I specialize in coding, system orchestration, and multi-project management. I can execute commands, manage files, spawn specialist teams, and handle scheduled tasks autonomously."
+        )
+
+        token = os.getenv("TELEGRAM_BOT_TOKEN")
+        photo_path = "Nova.png"
+        if token and os.path.exists(photo_path):
+            import requests
+
+            with open(photo_path, "rb") as photo:
+                url = f"https://api.telegram.org/bot{token}/setMyProfilePhoto"
+                resp = requests.post(url, files={"photo": photo})
+                if resp.status_code == 200:
+                    print(
+                        "Nova identity: name, descriptions, and profile picture updated."
+                    )
+                else:
+                    print(
+                        f"Nova identity: descriptions updated, but photo failed: {resp.text}"
+                    )
+        else:
+            print("Nova identity: name and descriptions updated. Photo skipped.")
+    except Exception as e:
+        print(f"Failed to update Nova identity: {e}")
+
+    # Set Bot Commands for the menu
+    try:
+        commands = [
+            BotCommand("start", "Initial greeting and help info"),
+            BotCommand("delete_history", "Wipe all database memory (destructive)"),
+        ]
+        await application.bot.set_my_commands(commands)
+        print("Nova command menu updated.")
+    except Exception as e:
+        print(f"Failed to set bot commands: {e}")
 
     # Heartbeat: callback only fires when there are active agents
     monitor = get_heartbeat_monitor()
