@@ -135,7 +135,8 @@ async def run_team(
         Team ID string (task runs in background)
     """
     try:
-        # Build specialists — all share the same DB
+        # Validate ALL specialist names FIRST — fail fast with clear error so Nova can retry
+        from nova.tools.specialist_registry import list_specialists
         members = []
         missing = []
         for name in specialist_names:
@@ -145,11 +146,17 @@ async def run_team(
             else:
                 missing.append(name)
 
-        if not members:
-            return f"Error: Could not instantiate any specialists. Missing: {missing}"
-
         if missing:
-            logger.warning(f"Team '{task_name}' missing specialists: {missing}")
+            # Return actionable error — Nova must use list_specialists() to see valid names
+            available = list_specialists()
+            return (
+                f"Error: Specialist(s) not found: {missing}. "
+                f"Call list_specialists() to see valid names. "
+                f"Valid options: {available[:300]}"
+            )
+
+        if not members:
+            return "Error: No specialists could be instantiated."
 
         # Namespace by project if provided
         team_label = f"[{project}] {task_name}" if project else task_name
