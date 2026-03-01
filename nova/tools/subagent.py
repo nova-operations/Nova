@@ -217,7 +217,7 @@ async def create_subagent(
         markdown=False,
         num_history_messages=3,
         add_datetime_to_context=True,
-        update_memory_on_run=True,
+        learning=True,
     )
 
     loop = asyncio.get_running_loop()

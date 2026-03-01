@@ -108,7 +108,7 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         markdown=False,
         add_history_to_context=True,
         add_datetime_to_context=True,
-        update_memory_on_run=True,
+        learning=True,
         num_history_runs=6,
     )
 
