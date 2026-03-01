@@ -72,8 +72,36 @@ class ErrorBusHandler(logging.Handler):
         if any(
             p in msg
             for p in [
+<<<<<<< HEAD
                 "Specialist 'Tester' not found. Available: No specialists registered",
                 "Specialist 'Bug-Fixer' not found. Available: No specialists registered",
+=======
+                "Function RAG not found",
+                "Function grep not found",
+                "Function Glob not found",
+                "Function ls not found",
+                "Function execute_shell_command not found",
+                "Could not run function write_file",
+                "Missing required argument",
+                "Function web_search not found",
+                "Function list_files not found",
+                "Function list_directory not found",
+                "Function list_files_under_directory not found",
+                "Function get_current_directory not found",
+                "Function read_file not found",
+                "Function write_file not found",
+                "Function Read not found",
+                "Function Write not found",
+                "Function List not found",
+                "Function bug-fixer:bash not found",
+                "Function Bash not found",
+                "bug-fixer:list_files not found",
+                "bug-fixer:read_file not found",
+                "bug-fixer:write_file not found",
+                "bug-fixer:execute_shell_command not found",
+                "Function run_bash_command not found",
+                "Function bug-fixer:diagnose_and_fix_bug not found",
+>>>>>>> 9433d16d95980bf1b0fe423eda0ebbe7ddaf2eb7
             ]
         ):
             logging.getLogger("nova.tools.error_bus").warning(
