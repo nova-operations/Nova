@@ -53,6 +53,17 @@ class MCPRegistry:
         finally:
             session.close()
 
+    def _safe_parse_json(self, json_str, default):
+        """Safely parse JSON string, returning default on failure."""
+        if json_str is None:
+            return default
+        if isinstance(json_str, (list, dict)):
+            return json_str
+        try:
+            return json.loads(json_str)
+        except (json.JSONDecodeError, ValueError):
+            return default
+
     def list_servers(self) -> List[Dict]:
         session = self.Session()
         try:
@@ -62,15 +73,9 @@ class MCPRegistry:
                     "name": s.name,
                     "transport": s.transport,
                     "command": s.command,
-                    "args": (
-                        s.args
-                        if isinstance(s.args, list)
-                        else json.loads(s.args or "[]")
-                    ),
+                    "args": self._safe_parse_json(s.args, []),
                     "url": s.url,
-                    "env": (
-                        s.env if isinstance(s.env, dict) else json.loads(s.env or "{}")
-                    ),
+                    "env": self._safe_parse_json(s.env, {}),
                 }
                 for s in servers
             ]
