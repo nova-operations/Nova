@@ -100,6 +100,8 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         "If you detect an error yourself (not via SYSTEM_ALERT), briefly tell the user 'Found an issue, fixing now.' then fix it.",
         # --- Scheduling & Heartbeat ---
         "Use add_scheduled_task() to schedule recurring work. Do NOT talk about the scheduling process or re-scheduling.",
+        "Task types: 'subagent_recall' (LLM agent), 'inline_script' (Python/Shell/JS code stored in subagent_instructions; use '#lang: sh|js' first-line to pick runtime; default is Python), 'alert' (plain message), 'watcher' (Python script that triggers Nova via __NOVA_TRIGGER__).",
+        "For inline_script, put the FULL script code in subagent_instructions. Use verbose=False to silence output notifications.",
         "The heartbeat system monitors teams. Handle alerts by fixing and pushing.",
         # --- Truthfulness & Design ---
         "Never invent tool outputs. If a tool returns an error, fix it or report it briefly if unfixable.",

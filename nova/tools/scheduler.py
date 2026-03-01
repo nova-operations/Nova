@@ -64,6 +64,7 @@ class TaskType(str, enum.Enum):
     SILENT = "silent"
     ALERT = "alert"
     WATCHER = "watcher"
+    INLINE_SCRIPT = "inline_script"
 
 
 class ScheduledTask(Base):
@@ -419,6 +420,114 @@ async def _execute_watcher_task(
         return "failure", str(e)
 
 
+async def _execute_inline_script(
+    job_id: int,
+    script_body: str,
+    notification_enabled: bool,
+    target_chat_id: Optional[str] = None,
+):
+    """
+    Execute an inline script stored directly in the database.
+
+    Language auto-detection order:
+      1. First line: '#lang: python' | '#lang: sh' | '#lang: js'
+      2. Shebang line (#!/.../python, #!/.../node, #!/bin/sh etc.)
+      3. Default: python
+    """
+    import tempfile
+    import subprocess
+
+    logger.info(f"Executing inline_script task: job_id={job_id}")
+
+    if not script_body:
+        return "failure", "No script body provided."
+
+    # --- Language detection ---
+    lines = script_body.strip().splitlines()
+    first_line = lines[0].strip().lower() if lines else ""
+
+    lang = "python"  # default
+    if first_line.startswith("#lang:"):
+        detected = first_line.replace("#lang:", "").strip()
+        if detected in ("sh", "shell", "bash"):
+            lang = "sh"
+        elif detected in ("js", "javascript", "node"):
+            lang = "js"
+        else:
+            lang = "python"
+        # Strip the #lang directive from the actual body we execute
+        script_body = "\n".join(lines[1:])
+    elif first_line.startswith("#!"):
+        if "python" in first_line:
+            lang = "python"
+        elif "node" in first_line or "js" in first_line:
+            lang = "js"
+        elif any(s in first_line for s in ("sh", "bash", "zsh")):
+            lang = "sh"
+
+    # --- Choose interpreter and file extension ---
+    if lang == "python":
+        suffix = ".py"
+        interpreter = [sys.executable]
+    elif lang == "js":
+        suffix = ".js"
+        interpreter = ["node"]
+    else:  # sh
+        suffix = ".sh"
+        interpreter = ["bash"]
+
+    # --- Write to temp file and run ---
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False) as f:
+            f.write(script_body)
+            temp_path = f.name
+
+        try:
+            result = subprocess.run(
+                interpreter + [temp_path],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=120,
+            )
+
+            stdout = (result.stdout or "").strip()
+            stderr = (result.stderr or "").strip()
+            succeeded = result.returncode == 0
+
+            if succeeded:
+                output = stdout
+                status = "success"
+            else:
+                output = f"[FAIL] Exit code {result.returncode}\n{stderr}\n{stdout}"
+                status = "failure"
+
+            # Notify if enabled
+            if notification_enabled and output:
+                snippet = output[:1000]
+                await _send_telegram_notification(
+                    f"[{lang.upper()}] Job {job_id} output:\n{snippet}",
+                    chat_id=target_chat_id,
+                )
+
+            logger.info(f"Inline script completed: status={status}")
+            return status, output
+
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"Inline script timed out: job_id={job_id}")
+        return "failure", "Script timed out after 120s."
+    except FileNotFoundError as e:
+        logger.error(f"Interpreter not found for lang={lang}: {e}")
+        return "failure", f"Interpreter not found: {e}"
+    except Exception as e:
+        logger.error(f"Failed to execute inline script: {e}")
+        return "failure", str(e)
+
+
 def _cleanup_orphaned_job(job_id: str):
     """Remove an orphaned APScheduler job that has no corresponding DB task."""
     try:
@@ -523,6 +632,18 @@ async def _job_executor(job_id: int):
                 job_id, script_content, target_chat_id=target_chat_id
             )
 
+        elif task.task_type == TaskType.INLINE_SCRIPT:
+            script_body = task.subagent_instructions or task.subagent_task
+            if not script_body:
+                logger.error(f"No script body for inline_script task: {job_id}")
+                return
+            status, output = await _execute_inline_script(
+                job_id,
+                script_body,
+                task.notification_enabled,
+                target_chat_id=target_chat_id,
+            )
+
         else:
             logger.error(f"Unknown task type: {task.task_type}")
             return
@@ -618,17 +739,22 @@ def add_scheduled_task(
     Args:
         task_name: Unique name for the task
         schedule: Cron expression (e.g., "0 * * * *" for hourly)
-        task_type: One of "standalone_sh", "subagent_recall", "silent", "alert"
+        task_type: One of "standalone_sh", "subagent_recall", "team_task", "silent",
+                   "alert", "inline_script"
         script_path: Path to shell script (for standalone_sh)
-        subagent_name: Name for subagent (for subagent_recall)
-        subagent_instructions: Instructions for subagent (for subagent_recall)
-        subagent_task: Task prompt for subagent (for subagent_recall) or alert message (for alert)
-        notification_enabled: Whether to send notifications
-        alert_message: Message for alert (shorthand for subagent_task)
-        chat_id: Optional specific chat ID to send notifications to
+        subagent_name: Display name (for subagent_recall)
+        subagent_instructions: For subagent_recall: system prompt.
+                               For inline_script: THE SCRIPT BODY (Python/Shell/JS).
+                               First line may be '#lang: python|sh|js' to pick runtime;
+                               defaults to Python if omitted.
+        subagent_task: Task prompt for subagent_recall, or alert message for alert.
+        notification_enabled: Whether to send notifications (verbose mode).
+        verbose: Alias for notification_enabled.
+        alert_message: Alias for subagent_task for alert type.
+        chat_id: Optional specific chat ID to send notifications to.
 
     Returns:
-        Confirmation message
+        Confirmation message.
     """
     # Use verbose if provided as an alias for notification_enabled
     if verbose is not None:
@@ -638,7 +764,7 @@ def add_scheduled_task(
         return f"Error: Invalid cron expression: {schedule}"
 
     # Validate task type
-    valid_types = ["standalone_sh", "subagent_recall", "team_task", "silent", "alert"]
+    valid_types = ["standalone_sh", "subagent_recall", "team_task", "silent", "alert", "inline_script"]
     if task_type not in valid_types:
         return f"Error: Invalid task_type. Must be one of: {valid_types}"
 
@@ -648,6 +774,9 @@ def add_scheduled_task(
 
     if task_type == "subagent_recall" and not subagent_task:
         return "Error: subagent_task required for subagent_recall task"
+
+    if task_type == "inline_script" and not subagent_instructions:
+        return "Error: subagent_instructions required for inline_script (the script body goes there)"
 
     if task_type == "alert":
         if not subagent_task and not alert_message:
