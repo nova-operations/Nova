@@ -824,6 +824,10 @@ async def process_nova_intent(
             session_id = str(user_id)
 
             # Subagent monitoring
+            conversation_history = get_conversation_history(chat_id=str(chat_id))
+            if tool_call_id in response:
+                conversation_history.append({"role": "tool", "content": response.content, "tool_call_id": tool_call_id})
+                save_conversation_history(chat_id=str(chat_id), history=conversation_history)
             from nova.tools.subagent import SUBAGENTS as ACTIVE_SUBAGENTS
 
             active_subs = [
