@@ -54,38 +54,30 @@ class ErrorBusHandler(logging.Handler):
         ):
             return
 
-        # Filter un-fixable LLM hallucination noise (agno runtime tool-call failures)
+        # Filter un-fixable LLM hallucination noise with a single regex.
+        # Matches any 'Function X not found' (including namespaced member:tool forms)
+        # and 'Could not run function X' Agno framework messages.
+        import re
         msg = record.getMessage()
+        if re.search(
+            r"(Function [\w:\-]+ not found|Could not run function \w+|Missing required argument)",
+            msg,
+        ):
+            logging.getLogger("nova.tools.error_bus").warning(
+                f"[TOOL-MISS] {msg[:120]}"
+            )
+            return
+
+        # Also filter 'not found' tool errors explicitly listed by the user
         if any(
             p in msg
             for p in [
-                "Function RAG not found",
-                "Function grep not found",
-                "Function Glob not found",
-                "Function ls not found",
-                "Function execute_shell_command not found",
-                "Could not run function write_file",
-                "Missing required argument",
-                "Function web_search not found",
-                "Function list_files not found",
-                "Function list_directory not found",
-                "Function list_files_under_directory not found",
-                "Function get_current_directory not found",
-                "Function read_file not found",
-                "Function write_file not found",
-                "Function bug-fixer:bash not found",
-                "Function Bash not found",
-                "bug-fixer:list_files not found",
-                "bug-fixer:read_file not found",
-                "bug-fixer:write_file not found",
-                "bug-fixer:execute_shell_command not found",
-                "Function run_bash_command not found",
-                "Function bug-fixer:diagnose_and_fix_bug not found",
+                "Specialist 'Tester' not found. Available: No specialists registered",
+                "Specialist 'Bug-Fixer' not found. Available: No specialists registered",
             ]
         ):
-            # Log at WARNING so humans can see it, but don't trigger the healer loop
             logging.getLogger("nova.tools.error_bus").warning(
-                f"[TOOL-MISS] LLM called a hallucinated tool: {msg[:120]}"
+                f"[STARTUP] Specialist not ready yet, ignoring: {msg[:120]}"
             )
             return
 
@@ -185,18 +177,27 @@ async def _error_monitor_loop():
 
                     try:
                         import os
-                        from nova.tools.team_manager import run_team
+                        from nova.telegram_bot import reinvigorate_nova
 
                         chat_id = os.getenv("TELEGRAM_CHAT_ID")
-                        # Use the real team runner — specialists have actual tools
-                        result = await run_team(
-                            task_name=f"auto_heal_error_{err.id}",
-                            specialist_names=["Bug-Fixer", "Tester"],
-                            task_description=task_description,
-                            chat_id=chat_id,
-                        )
-                        err.status = ErrorStatus.RESOLVED
-                        logger.info(f"Auto-healer team launched for error {err.id}: {result}")
+                        if chat_id:
+                            # Route through Nova (orchestrator) — it properly delegates
+                            # to Bug-Fixer/Tester using run_team without the namespaced
+                            # tool lookup bug that plagues direct Team invocations.
+                            await reinvigorate_nova(
+                                chat_id,
+                                f"[AUTO-HEAL] System error detected.\n"
+                                f"Logger: {err.logger_name}\n"
+                                f"Error: {err.error_message[:400]}\n"
+                                f"Traceback: {err.traceback[:300] if err.traceback else 'N/A'}\n\n"
+                                "Diagnose the failure, fix the code, run tests, and push. "
+                                "Use run_team(['Bug-Fixer', 'Tester'], ...) to delegate.",
+                            )
+                            err.status = ErrorStatus.RESOLVED
+                            logger.info(f"Nova notified to heal error {err.id}")
+                        else:
+                            logger.warning(f"No TELEGRAM_CHAT_ID set, cannot notify Nova for error {err.id}")
+                            err.status = ErrorStatus.FAILED
                     except Exception as e:
                         err.status = ErrorStatus.FAILED
                         logger.error(f"Auto-healer FAILED to launch for error {err.id}: {e}")
