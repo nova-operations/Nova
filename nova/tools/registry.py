@@ -29,8 +29,10 @@ TOOL_REGISTRY = {
     "list_files_under_directory": list_files_under_directory,
     "delete_file": delete_file,
     "create_directory": create_directory,
-    # Shell
+    # Shell - multiple aliases for shell execution
     "shell": execute_shell_command,
+    "bash": execute_shell_command,
+    "sh": execute_shell_command,
     "execute_shell_command": execute_shell_command,
     # Git
     "github_push": push_to_github,
