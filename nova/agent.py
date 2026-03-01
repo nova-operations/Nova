@@ -14,7 +14,8 @@ from agno.models.openai import OpenAIChat
 from agno.media import Audio, Image, Video, File
 from agno.tools.tavily import TavilyTools
 
-from nova.db.engine import get_agno_db
+from nova.db.engine import get_agno_db  # kept for other tools that may use it
+from nova.db.shared_memory import get_shared_db
 from nova.tools.shell import execute_shell_command
 from nova.tools.team_manager import run_team
 from nova.tools.system_state import get_system_state
@@ -55,7 +56,8 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
     """
     model = get_model(model_id)
     chat_id = chat_id or "unknown"
-    db = get_agno_db(session_table="nova_agent_sessions")
+    # Nova uses the shared DB — same pool as all specialists
+    db = get_shared_db()
 
     tavily_api_key = os.getenv("TAVILY_API_KEY")
 
@@ -118,6 +120,7 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         add_history_to_context=True,
         add_datetime_to_context=True,
         learning=True,
+        update_memory_on_run=True,  # Write memories to shared pool after every run
         num_history_runs=6,
     )
 
