@@ -62,6 +62,9 @@ class ErrorBusHandler(logging.Handler):
             p in msg
             for p in [
                 "Internal Server Error",
+                "Bad Gateway",
+                "Bad gateway",
+                "502",
                 "Rate limit",
                 "Timeout",
                 "too many clients",
@@ -143,7 +146,7 @@ async def _error_monitor_loop():
                         "### MANDATORY SAFETY PROTOCOL:\n"
                         "1. DIAGNOSE the failure by reading relevant code and logs.\n"
                         "2. IMPLEMENT a fix, but BEFORE writing any code, plan how to verify it.\n"
-                        "3. AFTER editing any .py file, you MUST run `python3 -m py_compile <filename>` to ensure NO syntax errors were introduced.\n"
+                        "3. AFTER editing any .py file, you MUST run `python3 -m py_compile ` to ensure NO syntax errors were introduced.\n"
                         "4. If the compilation fails, FIX the code immediately before reporting completion.\n"
                         "5. VERIFY the fix with a small test script if possible.\n\n"
                         "Please self-heal the system, fix the codebase, and verify the fix."

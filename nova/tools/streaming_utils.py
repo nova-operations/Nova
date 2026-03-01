@@ -23,6 +23,22 @@ _cached_bot = None
 # Real-time mode flag - MUST be True for instant delivery
 REAL_TIME_MODE = True
 
+# Timeout configuration for Telegram API calls (in seconds)
+# These are more aggressive for streaming updates to avoid blocking
+# connect_timeout: time to establish connection  
+# read_timeout: time to wait for response
+TELEGRAM_CONNECT_TIMEOUT = 5.0
+TELEGRAM_READ_TIMEOUT = 10.0
+
+# Retry configuration - reduced for streaming to fail fast
+MAX_RETRIES = 2
+RETRY_DELAY = 0.5  # seconds
+
+# Flag to disable streaming in case of persistent failures
+_streaming_disabled = False
+_streaming_failure_count = 0
+STREAMING_DISABLE_THRESHOLD = 5  # Disable after 5 consecutive failures
+
 
 def strip_all_formatting(text: str) -> str:
     """
@@ -136,12 +152,112 @@ def _get_telegram_bot():
 
 
 async def _ensure_bot_initialized(bot):
-    if bot and hasattr(bot, "initialize") and not hasattr(bot, "_initialized"):
-        try:
+    """Ensure the bot is properly initialized."""
+    if bot is None:
+        return False
+        
+    try:
+        # Check if bot has request attribute and needs initialization
+        if hasattr(bot, "initialize") and not hasattr(bot, "_initialized"):
             await bot.initialize()
             bot._initialized = True
+            logger.info("Telegram bot initialized successfully")
+        return True
+    except Exception as e:
+        logger.warning(f"Bot initialization failed: {e}")
+        return False
+
+
+def _increment_failure_count():
+    """Track consecutive failures to optionally disable streaming."""
+    global _streaming_failure_count, _streaming_disabled
+    _streaming_failure_count += 1
+    if _streaming_failure_count >= STREAMING_DISABLE_THRESHOLD:
+        _streaming_disabled = True
+        logger.warning(f"Streaming disabled after {_streaming_failure_count} consecutive failures")
+
+
+def _reset_failure_count():
+    """Reset failure counter on successful send."""
+    global _streaming_failure_count, _streaming_disabled
+    _streaming_failure_count = 0
+    if _streaming_disabled:
+        _streaming_disabled = False
+        logger.info("Streaming re-enabled after successful send")
+
+
+async def _send_with_retry(bot, chat_id: int, message: str, parse_mode=None, is_document: bool = False, document_path: str = None, caption: str = None) -> bool:
+    """
+    Send a message with retry logic and proper timeout handling.
+    Uses aggressive timeouts for streaming to avoid blocking.
+    
+    Args:
+        bot: The telegram bot instance
+        chat_id: Target chat ID
+        message: Message text
+        parse_mode: Parse mode (None for plaintext)
+        is_document: Whether to send as document
+        document_path: Path to document if sending as file
+        caption: Caption for document
+    
+    Returns:
+        True if sent successfully, False otherwise
+    """
+    last_error = None
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            if is_document and document_path:
+                # Send document with timeout
+                with open(document_path, "rb") as pdf_file:
+                    await asyncio.wait_for(
+                        bot.send_document(
+                            chat_id=chat_id,
+                            document=pdf_file,
+                            caption=caption,
+                            parse_mode=parse_mode,
+                            connect_timeout=TELEGRAM_CONNECT_TIMEOUT,
+                            read_timeout=TELEGRAM_READ_TIMEOUT,
+                        ),
+                        timeout=TELEGRAM_READ_TIMEOUT + 2  # Overall timeout
+                    )
+            else:
+                # Send regular message with timeout
+                await asyncio.wait_for(
+                    bot.send_message(
+                        chat_id=chat_id,
+                        text=message,
+                        parse_mode=parse_mode,
+                        connect_timeout=TELEGRAM_CONNECT_TIMEOUT,
+                        read_timeout=TELEGRAM_READ_TIMEOUT,
+                    ),
+                    timeout=TELEGRAM_READ_TIMEOUT + 2  # Overall timeout
+                )
+            # Success - reset failure counter
+            _reset_failure_count()
+            return True
+            
+        except asyncio.TimeoutError:
+            last_error = f"Timeout on attempt {attempt + 1}/{MAX_RETRIES}"
+            logger.warning(f"Timeout sending message to {chat_id}: {last_error}")
+            # Increment failure count for timeouts
+            _increment_failure_count()
         except Exception as e:
-            logger.warning(f"Bot initialization failed: {e}")
+            last_error = f"Error on attempt {attempt + 1}/{MAX_RETRIES}: {e}"
+            logger.warning(f"Failed to send message to {chat_id}: {last_error}")
+            # Check for network/connection errors that should increment failure count
+            err_str = str(e).lower()
+            if any(x in err_str for x in ['timeout', 'network', 'connection', 'unavailable', 'conflict']):
+                _increment_failure_count()
+        
+        # Wait before retry (exponential backoff)
+        if attempt < MAX_RETRIES - 1:
+            wait_time = RETRY_DELAY * (2 ** attempt)  # 0.5s, 1s
+            logger.info(f"Retrying in {wait_time}s...")
+            await asyncio.sleep(wait_time)
+    
+    logger.error(f"All {MAX_RETRIES} attempts failed for chat {chat_id}: {last_error}")
+    return False
 
 
 async def send_live_update(
@@ -153,7 +269,18 @@ async def send_live_update(
 ) -> bool:
     """
     Send a live streaming update to the user via Telegram.
+    Includes retry logic and timeout handling.
+    
+    Note: This function is designed to be non-blocking. If Telegram is slow,
+    it will fail gracefully rather than block the subagent workflow.
     """
+    global _streaming_disabled
+    
+    # Check if streaming has been disabled due to persistent failures
+    if _streaming_disabled:
+        logger.debug(f"Streaming disabled, skipping message to {chat_id}")
+        return False
+        
     if silent:
         return True
 
@@ -169,29 +296,69 @@ async def send_live_update(
     try:
         bot = _get_telegram_bot()
         if not bot:
+            logger.debug("No Telegram bot available")
+            _increment_failure_count()
             return False
-
-        await _ensure_bot_initialized(bot)
 
         # Determine how to send
         from nova.long_message_handler import send_message_with_fallback
 
         # We use short-circuit here: if message is tiny, send directly to avoid PDF overhead
         if len(formatted_message) < 3800:
-            await bot.send_message(
-                chat_id=int(chat_id), text=formatted_message, parse_mode=None
-            )
-        else:
-            await send_message_with_fallback(
+            # Use retry-enabled sender with explicit timeouts
+            success = await _send_with_retry(
                 bot,
                 int(chat_id),
                 formatted_message,
-                title=f"SAU: {subagent_name}",
-                parse_mode=None,
+                parse_mode=None
             )
-        return True
+            if not success:
+                # Fallback to original function if retry fails - but with timeout
+                logger.warning("Using fallback send method after retries failed")
+                try:
+                    await asyncio.wait_for(
+                        bot.send_message(
+                            chat_id=int(chat_id),
+                            text=formatted_message,
+                            parse_mode=None,
+                            connect_timeout=TELEGRAM_CONNECT_TIMEOUT,
+                            read_timeout=TELEGRAM_READ_TIMEOUT,
+                        ),
+                        timeout=TELEGRAM_READ_TIMEOUT + 2
+                    )
+                    _reset_failure_count()
+                    return True
+                except asyncio.TimeoutError:
+                    logger.warning(f"Fallback send timed out for chat {chat_id}")
+                    _increment_failure_count()
+                    return False
+                except Exception as e:
+                    logger.error(f"Fallback send also failed: {e}")
+                    _increment_failure_count()
+                    return False
+            return success
+        else:
+            # For long messages, use the fallback handler with timeout
+            try:
+                await asyncio.wait_for(
+                    send_message_with_fallback(
+                        bot,
+                        int(chat_id),
+                        formatted_message,
+                        title=f"SAU: {subagent_name}",
+                        parse_mode=None,
+                    ),
+                    timeout=TELEGRAM_READ_TIMEOUT + 5
+                )
+                _reset_failure_count()
+                return True
+            except asyncio.TimeoutError:
+                logger.warning(f"Long message send timed out for chat {chat_id}")
+                _increment_failure_count()
+                return False
     except Exception as e:
         logger.error(f"Failed to send live update: {e}")
+        _increment_failure_count()
         return False
 
 

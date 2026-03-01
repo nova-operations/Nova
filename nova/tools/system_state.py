@@ -75,7 +75,7 @@ def get_system_state() -> str:
 
         sched_tasks = (
             session.query(ScheduledTask)
-            .filter(ScheduledTask.status == SchedTaskStatus.ACTIVE)
+            .filter(ScheduledTask.status == SchedTaskStatus.RUNNING)
             .all()
         )
         parts.append(f"## ⏱️ Active Scheduled Jobs & Watchers ({len(sched_tasks)})")

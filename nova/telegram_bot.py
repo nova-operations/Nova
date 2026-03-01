@@ -44,6 +44,30 @@ _ACTIVE_TASKS = {}  # chat_id -> task_name/status
 _TASK_QUEUES = {}  # chat_id -> List of messages
 _PROCESSING_LOCKS = {}  # chat_id -> asyncio.Lock
 
+# Transient errors that should not be logged as critical errors
+# These are temporary external service issues that resolve themselves
+TRANSIENT_ERRORS = [
+    "Bad Gateway",
+    "Bad gateway",
+    "502",
+    "503",
+    "504",
+    "Internal Server Error",
+    "500",
+    "Rate limit",
+    "Timeout",
+    "timed out",
+    "Connection reset",
+    "Connection error",
+]
+
+
+def is_transient_error(error_message: str) -> bool:
+    """Check if an error is transient and should not be logged as critical."""
+    if not error_message:
+        return True
+    return any(err.lower() in error_message.lower() for err in TRANSIENT_ERRORS)
+
 
 def is_authorized(user_id: int) -> bool:
     """Checks if the user is in the authorized whitelist."""
@@ -379,14 +403,25 @@ async def handle_message(
     )
 
 
-async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE):
+async def handle_error(update: Optional[object], context: ContextTypes.DEFAULT_TYPE):
     """Handles errors in the telegram bot."""
-    if context.error and "Conflict: terminated by other getUpdates request" in str(
-        context.error
-    ):
-        logging.warning("Conflict detected.")
-    else:
-        logging.error(f"Update {update} caused error {context.error}")
+    error_msg = str(context.error) if context.error else "Unknown error"
+    
+    # Check for known conflicts that should be handled specially
+    if "Conflict: terminated by other getUpdates request" in error_msg:
+        logging.warning("Conflict detected: Multiple bot instances running")
+        return
+    
+    # Check for transient errors - these should be logged at WARNING level, not ERROR
+    # Transient errors are temporary external service issues (Bad Gateway, timeouts, etc.)
+    if is_transient_error(error_msg):
+        update_repr = str(update) if update else "None"
+        logging.warning(f"Transient error from update {update_repr}: {error_msg}")
+        return
+    
+    # Log non-transient errors as errors
+    update_repr = str(update) if update else "None"
+    logging.error(f"Update {update_repr} caused error {error_msg}")
 
 
 async def post_init(application):

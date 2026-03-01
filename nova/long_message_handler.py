@@ -13,6 +13,7 @@ IMPORTANT: This module operates in PLAINTEXT-ONLY mode.
 import os
 import re
 import logging
+import asyncio
 import tempfile
 from typing import Optional
 from fpdf import FPDF
@@ -27,6 +28,10 @@ TELEGRAM_MAX_LENGTH = 4000
 # Configuration: Force plaintext mode for Telegram
 # When True, all markdown characters are stripped from messages
 FORCE_PLAINTEXT = os.getenv("FORCE_PLAINTEXT", "true").lower() == "true"
+
+# Timeout configuration for Telegram API calls (in seconds)
+TELEGRAM_CONNECT_TIMEOUT = 10.0
+TELEGRAM_READ_TIMEOUT = 30.0
 
 
 def strip_all_formatting(text: str) -> str:
@@ -337,11 +342,16 @@ async def send_message_with_fallback(
             try:
                 # Send the PDF (caption will also be sanitized)
                 with open(pdf_path, "rb") as pdf_file:
-                    await bot.send_document(
-                        chat_id=chat_id,
-                        document=pdf_file,
-                        caption=summary,
-                        parse_mode=parse_mode,  # None = plaintext
+                    await asyncio.wait_for(
+                        bot.send_document(
+                            chat_id=chat_id,
+                            document=pdf_file,
+                            caption=summary,
+                            parse_mode=parse_mode,  # None = plaintext
+                            connect_timeout=TELEGRAM_CONNECT_TIMEOUT,
+                            read_timeout=TELEGRAM_READ_TIMEOUT,
+                        ),
+                        timeout=TELEGRAM_READ_TIMEOUT + 5  # Overall timeout
                     )
 
                 # Clean up temp PDF file
@@ -353,6 +363,9 @@ async def send_message_with_fallback(
                 logger.info(f"Long message sent as PDF to chat {chat_id}")
                 return True, "sent_as_pdf"
 
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout sending PDF to chat {chat_id}")
+                status = "error"
             except Exception as e:
                 logger.error(f"Failed to send PDF: {e}")
                 # Fall back to truncated message
@@ -360,10 +373,18 @@ async def send_message_with_fallback(
 
     # Default: send as regular text message (plaintext only)
     try:
-        await bot.send_message(
-            chat_id=chat_id, text=message, parse_mode=parse_mode  # None = plaintext
+        await asyncio.wait_for(
+            bot.send_message(
+                chat_id=chat_id, text=message, parse_mode=parse_mode,  # None = plaintext
+                connect_timeout=TELEGRAM_CONNECT_TIMEOUT,
+                read_timeout=TELEGRAM_READ_TIMEOUT,
+            ),
+            timeout=TELEGRAM_READ_TIMEOUT + 5  # Overall timeout
         )
         return True, "sent_as_text"
+    except asyncio.TimeoutError:
+        logger.error(f"Timeout sending message to chat {chat_id}")
+        return False, "timeout"
     except Exception as e:
         logger.error(f"Failed to send message: {e}")
         return False, "error"

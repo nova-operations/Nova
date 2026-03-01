@@ -51,8 +51,8 @@ logger = logging.getLogger(__name__)
 class TaskStatus(str, enum.Enum):
     """Task status enumeration."""
 
-    ACTIVE = "active"
-    PAUSED = "paused"
+    RUNNING = "RUNNING"
+    PAUSED = "PAUSED"
 
 
 class TaskType(str, enum.Enum):
@@ -82,7 +82,7 @@ class ScheduledTask(Base):
     )  # System instructions for subagent
     subagent_task = Column(Text, nullable=True)  # Task prompt for subagent
     team_members = Column(JSON, nullable=True)  # List of specialist names for TEAM_TASK
-    status = Column(Enum(TaskStatus), default=TaskStatus.ACTIVE)
+    status = Column(Enum(TaskStatus), default=TaskStatus.RUNNING)
     notification_enabled = Column(Boolean, default=True)
     target_chat_id = Column(String(100), nullable=True)  # Specific chat ID for alerts
     last_run = Column(DateTime, nullable=True)
@@ -457,7 +457,7 @@ async def _job_executor(job_id: int):
             _cleanup_orphaned_job(str(job_id))
             return
 
-        if task.status != TaskStatus.ACTIVE:
+        if task.status != TaskStatus.RUNNING:
             logger.info(f"Task {task.task_name} is paused, skipping")
             return
 
@@ -652,7 +652,7 @@ def add_scheduled_task(
             subagent_instructions=subagent_instructions,
             subagent_task=subagent_task,
             team_members=team_members,
-            status=TaskStatus.ACTIVE,
+            status=TaskStatus.RUNNING,
             notification_enabled=notification_enabled,
             target_chat_id=chat_id,
         )
@@ -840,7 +840,7 @@ def update_scheduled_task(
         except:
             pass
 
-        if task.status == TaskStatus.ACTIVE:
+        if task.status == TaskStatus.RUNNING:
             scheduler.add_job(
                 _job_executor,
                 trigger=CronTrigger.from_crontab(task.schedule),
@@ -938,10 +938,10 @@ def resume_scheduled_task(task_name: str) -> str:
         if not task:
             return f"Error: Task '{task_name}' not found."
 
-        if task.status == TaskStatus.ACTIVE:
+        if task.status == TaskStatus.RUNNING:
             return f"Task '{task_name}' is already active."
 
-        task.status = TaskStatus.ACTIVE
+        task.status = TaskStatus.RUNNING
         db.commit()
 
         # Add to scheduler
@@ -1019,7 +1019,7 @@ def sync_scheduler_with_db() -> str:
         # Get only active tasks for missing job addition
         active_tasks = (
             db.query(ScheduledTask)
-            .filter(ScheduledTask.status == TaskStatus.ACTIVE)
+            .filter(ScheduledTask.status == TaskStatus.RUNNING)
             .all()
         )
         active_task_ids = {str(task.id) for task in active_tasks}
@@ -1103,7 +1103,7 @@ def start_scheduler() -> str:
         try:
             active_tasks = (
                 db.query(ScheduledTask)
-                .filter(ScheduledTask.status == TaskStatus.ACTIVE)
+                .filter(ScheduledTask.status == TaskStatus.RUNNING)
                 .all()
             )
 
