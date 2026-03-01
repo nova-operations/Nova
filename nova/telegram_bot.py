@@ -264,6 +264,12 @@ async def _show_task_detail(query, task_id: int):
                     if is_running
                     else f"mt_resume:{task_id}",
                 ),
+                InlineKeyboardButton(
+                    "[X] Silence" if task.notification_enabled else "[O] Notify",
+                    callback_data=f"mt_toggle_notify:{task_id}",
+                ),
+            ],
+            [
                 InlineKeyboardButton("[DEL] Delete", callback_data=f"mt_del_conf:{task_id}"),
             ],
             [InlineKeyboardButton("< Back to List", callback_data="manage_tasks")],
@@ -522,6 +528,20 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data.startswith("mt_del:"):
         task_id = int(query.data.split(":")[1])
         await _handle_task_action(query, task_id, "delete")
+
+    elif query.data.startswith("mt_toggle_notify:"):
+        task_id = int(query.data.split(":")[1])
+        from nova.tools.scheduler import get_session, ScheduledTask
+        db = get_session()
+        try:
+            task = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
+            if task:
+                task.notification_enabled = not task.notification_enabled
+                db.commit()
+                await query.answer(f"Notifications {'Off' if not task.notification_enabled else 'On'}")
+                await _show_task_detail(query, task_id)
+        finally:
+            db.close()
 
     elif query.data.startswith("mt_at_pause:"):
         task_id = int(query.data.split(":")[1])

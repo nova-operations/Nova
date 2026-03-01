@@ -277,13 +277,13 @@ async def _execute_subagent_recall(
         from nova.tools.subagent import create_subagent
 
         # Create subagent asynchronously
-        # We use silent=True if notification_enabled is False OR if we want to minimize spam
+        # Use the task's notification setting to determine silence
         result = await create_subagent(
             name=subagent_name,
             instructions=subagent_instructions,
             task=subagent_task,
             chat_id=target_chat_id,
-            silent=True,
+            silent=not notification_enabled,
         )
 
         if result.startswith("Error"):
@@ -608,6 +608,7 @@ def add_scheduled_task(
     subagent_task: Optional[str] = None,
     team_members: Optional[List[str]] = None,
     notification_enabled: bool = True,
+    verbose: Optional[bool] = None,
     alert_message: Optional[str] = None,
     chat_id: Optional[str] = None,
 ) -> str:
@@ -629,6 +630,9 @@ def add_scheduled_task(
     Returns:
         Confirmation message
     """
+    # Use verbose if provided as an alias for notification_enabled
+    if verbose is not None:
+        notification_enabled = verbose
     # Validate cron
     if not _validate_cron(schedule):
         return f"Error: Invalid cron expression: {schedule}"
@@ -801,11 +805,29 @@ def update_scheduled_task(
     subagent_name: Optional[str] = None,
     subagent_instructions: Optional[str] = None,
     subagent_task: Optional[str] = None,
+    team_members: Optional[List[str]] = None,
     notification_enabled: Optional[bool] = None,
+    verbose: Optional[bool] = None,
     alert_message: Optional[str] = None,
     chat_id: Optional[str] = None,
 ) -> str:
-    """Update an existing scheduled task."""
+    """
+    Update an existing scheduled task.
+
+    Args:
+        task_name: Name of the task to update
+        schedule: New cron schedule
+        task_type: New task type
+        script_path: New script path
+        subagent_name: New subagent name
+        subagent_instructions: New subagent instructions
+        subagent_task: New subagent task / alert message
+        team_members: New team members
+        notification_enabled: Enable/disable notifications
+        verbose: Alias for notification_enabled
+        alert_message: Alias for subagent_task for alert type
+        chat_id: New chat ID
+    """
 
     db = get_session()
 
@@ -847,11 +869,17 @@ def update_scheduled_task(
         if subagent_task is not None:
             task.subagent_task = subagent_task
 
-        if alert_message is not None:
-            task.subagent_task = alert_message
-
+        if team_members is not None:
+            task.team_members = team_members
+        # verbose is an alias for notification_enabled
+        if verbose is not None:
+            task.notification_enabled = verbose
         if notification_enabled is not None:
             task.notification_enabled = notification_enabled
+
+        # alert_message is an alias for subagent_task for alert type
+        if alert_message is not None:
+            task.subagent_task = alert_message
 
         if chat_id is not None:
             task.target_chat_id = chat_id
@@ -1094,7 +1122,7 @@ def sync_scheduler_with_db() -> str:
                 except Exception as e:
                     logger.error(f"Failed to add job for task {task.task_name}: {e}")
 
-        return f"✅ Sync complete. Removed {removed_count} orphaned jobs, added {added_count} missing jobs."
+        return "[OK] Sync complete. Removed {removed_count} orphaned jobs, added {added_count} missing jobs."
 
     except Exception as e:
         logger.error(f"Scheduler sync failed: {e}")
