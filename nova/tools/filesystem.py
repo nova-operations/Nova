@@ -64,6 +64,31 @@ def list_files(path: str = ".") -> str:
 
 
 @wrap_tool_output_optimization
+def list_files_under_directory(path: str = ".") -> str:
+    """Lists all files recursively under a directory.
+    
+    Returns a list of all files (with paths relative to the given directory).
+    """
+    try:
+        abs_path = _resolve_path(path)
+        if not os.path.exists(abs_path):
+            return f"Error: directory does not exist: {abs_path}"
+        if not os.path.isdir(abs_path):
+            return f"Error: path is not a directory: {abs_path}"
+        
+        all_files = []
+        for root, dirs, files in os.walk(abs_path):
+            for file in files:
+                full_path = os.path.join(root, file)
+                rel_path = os.path.relpath(full_path, abs_path)
+                all_files.append(rel_path)
+        
+        return "\n".join(all_files)
+    except Exception as e:
+        return f"Error listing files under {path}: {e}"
+
+
+@wrap_tool_output_optimization
 def delete_file(filepath: str) -> str:
     """Deletes a file."""
     try:
