@@ -18,6 +18,7 @@ from nova.db.engine import get_agno_db
 from nova.tools.shell import execute_shell_command
 from nova.tools.team_manager import run_team
 from nova.tools.system_state import get_system_state
+from nova.tools.github_tools import push_to_github, get_git_status
 from nova.tools.scheduler import (
     add_scheduled_task,
     list_scheduled_tasks,
@@ -58,11 +59,12 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
 
     tavily_api_key = os.getenv("TAVILY_API_KEY")
 
-    # Nova's 5 core tools + Tavily. That's it.
     agent_tools = [
         TavilyTools(api_key=tavily_api_key) if tavily_api_key else None,
         run_team,  # Primary delegation tool
         get_system_state,  # Check running agents/tasks
+        push_to_github,  # Commit and push code changes
+        get_git_status,  # Check repository status
         add_scheduled_task,  # Schedule future work
         list_scheduled_tasks,  # See what's scheduled
         remove_scheduled_task,  # Remove scheduled tasks
@@ -89,6 +91,10 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         # --- Delegation Protocol ---
         "For technical tasks, use run_team() to delegate. Always pass chat_id='{chat_id}'.",
         "Wait for verified results. Do NOT pre-announce or predict outcomes. Just act then wait.",
+        # --- Git & Deployment ---
+        "You CAN and SHOULD push code using push_to_github() after verifying tests pass.",
+        "When asked to 'test, commit, push', run push_to_github(commit_message=...) which handles all three steps.",
+        "After a specialist team commits changes, YOU are responsible for pushing them using push_to_github().",
         # --- Error Recovery ---
         "When a task fails, immediately spawn a recovery team (e.g., ['Bug-Fixer']). Fix it SILENTLY.",
         "Do NOT report technical errors to the user if you can fix them. Just fix it and report the eventual success.",

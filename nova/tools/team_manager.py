@@ -147,7 +147,7 @@ async def run_team(
                 "Coordinate to complete the task. Be concise and accurate.",
                 "Only report verified results. Never hallucinate.",
                 "Delegate subtasks to the most appropriate team member.",
-                "You CANNOT push to remote git. Report completion to Nova instead.",
+                "After fixing code, use push_to_github() to commit and push changes.",
             ],
             markdown=False,
             add_datetime_to_context=True,
