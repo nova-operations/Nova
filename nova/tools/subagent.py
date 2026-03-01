@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 import os
 import re
 
-# Import all tools to give to subagents
+from agno.tools.tavily import TavilyTools
 from nova.tools.shell import execute_shell_command
 from nova.tools.filesystem import (
     read_file,
@@ -178,8 +178,6 @@ async def create_subagent(
     except:
         pass
 
-    from nova.agent import get_mcp_toolkits
-
     tools = [
         execute_shell_command,
         read_file,
@@ -200,7 +198,10 @@ async def create_subagent(
             ]
         )
 
-    tools.extend(get_mcp_toolkits())
+    # Add Tavily if available
+    tavily_key = os.getenv("TAVILY_API_KEY")
+    if tavily_key:
+        tools.append(TavilyTools(api_key=tavily_key))
 
     # Subagent prompt injection
     full_instr = [f"You are {name}."]
