@@ -80,8 +80,9 @@ def _create_specialist(name: str) -> Optional[Agent]:
         tools=tools,
         db=db,
         markdown=False,
-        add_history_to_context=False,  # Keep specialist memory lean
+        add_history_to_context=True,
         add_datetime_to_context=True,
+        update_memory_on_run=True,
         num_history_runs=2,
     )
 
@@ -97,6 +98,7 @@ async def run_team(
     task_description: str,
     chat_id: Optional[str] = None,
     project: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> str:
     """
     Spawns a specialist team and runs a task asynchronously.
@@ -133,11 +135,13 @@ async def run_team(
         team_label = f"[{project}] {task_name}" if project else task_name
         team_id = f"team_{task_name}_{asyncio.get_event_loop().time():.0f}"
 
-        # Build the agno Team
+        # Build the agno Team with shared persistent memory
+        team_db = get_agno_db(session_table="nova_team_sessions")
         team = Team(
             name=team_label,
             members=members,
             model=_get_model(),
+            db=team_db,
             description=f"Specialist team for: {team_label}",
             instructions=[
                 "Coordinate to complete the task. Be concise and accurate.",
@@ -147,6 +151,7 @@ async def run_team(
             ],
             markdown=False,
             add_datetime_to_context=True,
+            update_memory_on_run=True,
         )
 
         # Register in global SUBAGENTS dict for heartbeat tracking
@@ -163,7 +168,12 @@ async def run_team(
             try:
                 SUBAGENTS[team_id]["status"] = "running"
 
-                response = await team.arun(task_description)
+                # Pass user_id so team shares memory with Nova orchestrator
+                run_user_id = user_id or chat_id or "system"
+                response = await team.arun(
+                    task_description,
+                    user_id=run_user_id,
+                )
                 result = response.content if response else "No result."
 
                 SUBAGENTS[team_id]["status"] = "completed"

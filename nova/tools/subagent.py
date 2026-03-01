@@ -72,7 +72,7 @@ def get_task_tracker() -> TaskTracker:
     return _task_tracker
 
 
-async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
+async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str, user_id: str = "system"):
     """
     The actual coroutine that runs the subagent.
     """
@@ -94,14 +94,14 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
 
             # Execute agent task
             try:
-                response = await agent.arun(instruction)
+                response = await agent.arun(instruction, user_id=user_id)
             except Exception as e:
                 error_msg = str(e)
                 if any(p in error_msg.lower() for p in ["context", "token", "400"]):
                     agent.num_history_messages = 1
                     if hasattr(agent, "memory"):
                         agent.memory.clear()
-                    response = await agent.arun(truncate_middle(instruction, 30000))
+                    response = await agent.arun(truncate_middle(instruction, 30000), user_id=user_id)
                 else:
                     raise
 
@@ -161,6 +161,9 @@ async def create_subagent(
             else "nova_memory.db"
         )
 
+    # Derive user_id from chat_id for shared memory with Nova
+    run_user_id = chat_id or "system"
+
     # Aggressive truncation for stability
     try:
         opt_instr, opt_task = await optimize_subagent_input(
@@ -212,12 +215,13 @@ async def create_subagent(
         instructions=full_instr,
         tools=tools,
         markdown=False,
-        num_history_messages=3,  # Keep history very short
+        num_history_messages=3,
         add_datetime_to_context=True,
+        update_memory_on_run=True,
     )
 
     loop = asyncio.get_running_loop()
-    loop.create_task(run_subagent_task(subagent_id, worker, task))
+    loop.create_task(run_subagent_task(subagent_id, worker, task, run_user_id))
 
     SUBAGENTS[subagent_id] = {
         "name": name,
@@ -226,6 +230,7 @@ async def create_subagent(
         "instruction": task,
         "chat_id": chat_id,
         "silent": silent,
+        "user_id": run_user_id,
     }
 
     get_task_tracker().register_task(

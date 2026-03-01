@@ -730,6 +730,7 @@ async def process_nova_intent(
             response = await agent.arun(
                 message,
                 session_id=session_id,
+                user_id=str(user_id),
                 images=images,
                 audio=audio,
                 videos=videos,
