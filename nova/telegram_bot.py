@@ -3,12 +3,13 @@ import logging
 import asyncio
 import tempfile
 from typing import List, Optional, Any
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     filters,
 )
 from nova.agent import get_agent
@@ -88,8 +89,52 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text=f"Hello! I am Nova (User ID: {user_id}). I can run commands, manage files, spawn subagents, and manage scheduled tasks. I now support VOICE, AUDIO, and IMAGE inputs! How can I help you?",
+        text=f"Hello! I am Nova (User ID: {user_id}).\n\nI can run commands, manage files, spawn teams, and manage scheduled tasks.\n\nAvailable slash commands:\n/start - Initial greeting\n/delete_history - Wipe all database memory\n\nI also support VOICE, AUDIO, and IMAGE inputs! How can I help you?",
     )
+
+
+async def delete_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Slash command to trigger database history deletion with confirmation."""
+    user_id = update.effective_user.id
+    if not is_authorized(user_id):
+        return
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "🔥 Confirm Wipe", callback_data="confirm_delete_history"
+            ),
+            InlineKeyboardButton("❌ Cancel", callback_data="cancel_delete_history"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "⚠️ WARNING: This will permanently delete ALL database history, agent memories, and session data. Are you absolutely sure?",
+        reply_markup=reply_markup,
+    )
+
+
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles button clicks for confirmations."""
+    query = update.callback_query
+    user_id = query.from_user.id
+
+    if not is_authorized(user_id):
+        await query.answer("Unauthorized", show_alert=True)
+        return
+
+    await query.answer()
+
+    if query.data == "confirm_delete_history":
+        from nova.tools.db_cleaner import wipe_all_database_tables
+
+        await query.edit_message_text("🗑️ Wiping all history... please wait.")
+        result = wipe_all_database_tables()
+        await query.edit_message_text(f"🏁 {result}")
+
+    elif query.data == "cancel_delete_history":
+        await query.edit_message_text("❌ Action cancelled. History preserved.")
 
 
 async def heartbeat_callback(report: str, records: List[object]):
@@ -409,19 +454,19 @@ async def handle_message(
 async def handle_error(update: Optional[object], context: ContextTypes.DEFAULT_TYPE):
     """Handles errors in the telegram bot."""
     error_msg = str(context.error) if context.error else "Unknown error"
-    
+
     # Check for known conflicts that should be handled specially
     if "Conflict: terminated by other getUpdates request" in error_msg:
         logging.warning("Conflict detected: Multiple bot instances running")
         return
-    
+
     # Check for transient errors - these should be logged at WARNING level, not ERROR
     # Transient errors are temporary external service issues (Bad Gateway, timeouts, etc.)
     if is_transient_error(error_msg):
         update_repr = str(update) if update else "None"
         logging.warning(f"Transient error from update {update_repr}: {error_msg}")
         return
-    
+
     # Log non-transient errors as errors
     update_repr = str(update) if update else "None"
     logging.error(f"Update {update_repr} caused error {error_msg}")
@@ -485,6 +530,8 @@ if __name__ == "__main__":
 
     # Handlers
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("delete_history", delete_history_cmd))
+    application.add_handler(CallbackQueryHandler(callback_handler))
 
     # Any message type
     application.add_handler(
