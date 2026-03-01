@@ -95,6 +95,10 @@ class ErrorBusHandler(logging.Handler):
                 "too many clients",
                 "connection failure",
                 "OperationalError",
+                # Benign Telegram UI errors — not code bugs
+                "Message is not modified",
+                "not modified: specified new message content",
+                "callback_handler error",
             ]
         ):
             return
