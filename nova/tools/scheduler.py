@@ -766,6 +766,16 @@ def add_scheduled_task(
     if not _validate_cron(schedule):
         return f"Error: Invalid cron expression: {schedule}"
 
+    # Guard against accidentally scheduling every-single-minute (almost always wrong).
+    # '* * * * *' fires 1440 times per day. If you truly need per-minute, use '*/1 * * * *'
+    # explicitly for alert types. For other types the minimum useful interval is every 5 min.
+    if schedule.strip() == "* * * * *" and task_type not in ("alert",):
+        return (
+            "Error: Schedule '* * * * *' (every minute) is not allowed for this task type. "
+            "This almost always means the task should be executed ONCE as a direct action, not scheduled. "
+            "If you genuinely need per-minute recurrence, use '*/1 * * * *' and task_type='alert'."
+        )
+
     # Validate task type
     valid_types = ["standalone_sh", "subagent_recall", "team_task", "silent", "alert", "inline_script"]
     if task_type not in valid_types:

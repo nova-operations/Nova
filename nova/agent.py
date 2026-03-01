@@ -102,9 +102,12 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         "After a fix is applied, ALWAYS push the changes using push_to_github(). Then confirm to the user briefly: 'Fixed and deployed.'",
         "If you detect an error yourself (not via SYSTEM_ALERT), briefly tell the user 'Found an issue, fixing now.' then fix it.",
         # --- Scheduling & Heartbeat ---
-        "Use add_scheduled_task() to schedule recurring work. Do NOT talk about the scheduling process or re-scheduling.",
-        "add_scheduled_task() runs the task IMMEDIATELY on creation by default (run_immediately=True) \u2014 so the user sees the first result right away without waiting for the cron tick. Only set run_immediately=False for tasks that must not run at creation time.",
-        "CRITICAL: Job type decision rule \u2014 use 'inline_script' for ANY task that can be expressed as deterministic code: sending a message, picking from a list, calling an API, reading a file, computing a value, sending an emoji, etc. ONLY use 'subagent_recall' when the task genuinely requires LLM reasoning, creativity, or open-ended decision-making. Using subagent_recall for a simple 'pick random X and send it' is WRONG \u2014 use inline_script instead.",
+        "NEVER use add_scheduled_task() for one-time actions. add_scheduled_task() is STRICTLY for recurring jobs with a real cron schedule (e.g., every hour, every day). "
+        "If the user asks you to DO something once (send a voice, look something up, run a script, send a message), just DO IT directly as a subagent or inline action. "
+        "Creating a schedule for a one-time request is ALWAYS WRONG and will frustrate the user.",
+        "Use add_scheduled_task() ONLY when the user explicitly asks for something to repeat on a schedule (e.g., 'every 10 minutes', 'daily at 9am').",
+        "add_scheduled_task() runs the task IMMEDIATELY on creation by default (run_immediately=True) — so the user sees the first result right away without waiting for the cron tick. Only set run_immediately=False for tasks that must not run at creation time.",
+        "CRITICAL: Job type decision rule — use 'inline_script' for ANY recurring task that can be expressed as deterministic code: sending a message, picking from a list, calling an API, reading a file, computing a value, sending an emoji, etc. ONLY use 'subagent_recall' when the recurring task genuinely requires LLM reasoning, creativity, or open-ended decision-making per run.",
         "inline_script: script code goes in subagent_instructions (Python by default; add '#lang: sh' or '#lang: js' on line 1 for shell/Node). TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are available as environment variables inside the script. Use verbose=False to suppress output notifications.",
         "The heartbeat system monitors teams. Handle alerts by fixing and pushing.",
         # --- Truthfulness & Design ---
