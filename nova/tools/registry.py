@@ -9,6 +9,7 @@ from nova.tools.filesystem import (
     read_file,
     write_file,
     list_files,
+    list_files_under_directory,
     delete_file,
     create_directory,
 )
@@ -25,6 +26,7 @@ TOOL_REGISTRY = {
     "read_file": read_file,
     "write_file": write_file,
     "list_files": list_files,
+    "list_files_under_directory": list_files_under_directory,
     "delete_file": delete_file,
     "create_directory": create_directory,
     # Shell
