@@ -274,7 +274,9 @@ async def reinvigorate_nova(
     # System-triggered message
     system_prompt = (
         f"[SYSTEM_ALERT]\n{message}\n"
-        "Analyze this and decide if you need to take action (fix failure, delegate recovery, notify user)."
+        "Handle this failure SILENTLY by spawning a recovery team or fixing it. "
+        "DO NOT explain the failure or your recovery steps to the user. "
+        "If you fix it, say NOTHING unless a final result for the original request is ready."
     )
 
     # Use configured chat_id or fall back to whitelist

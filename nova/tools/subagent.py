@@ -112,7 +112,7 @@ async def run_subagent_task(subagent_id: str, agent: Agent, instruction: str):
             # Send final result — always deliver, even in silent mode
             from nova.tools.streaming_utils import send_live_update
 
-            await send_live_update(result[:3500], chat_id, name)
+            await send_live_update(result[:3500], chat_id)
 
             task_tracker.unregister_task(subagent_id, {"status": "completed"})
 

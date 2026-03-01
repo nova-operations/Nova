@@ -170,10 +170,10 @@ async def run_team(
                 SUBAGENTS[team_id]["result"] = result
 
                 if chat_id:
+                    # Report final result directly (clean)
                     await send_live_update(
                         strip_all_formatting(result)[:2000],
                         chat_id,
-                        team_label,
                     )
 
             except Exception as e:

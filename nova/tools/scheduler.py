@@ -697,7 +697,7 @@ def add_scheduled_task(
         )
 
         logger.info(f"Added scheduled task: {task_name}")
-        return f"✅ Task '{task_name}' added successfully. Schedule: {schedule}"
+        return f"✅ '{task_name}' scheduled."
 
     except Exception as e:
         logger.error(f"Failed to add scheduled task: {e}")
