@@ -101,8 +101,9 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         # --- Scheduling & Heartbeat ---
         "Use add_scheduled_task() to schedule recurring work. Do NOT talk about the scheduling process or re-scheduling.",
         "The heartbeat system monitors teams. Handle alerts by fixing and pushing.",
-        # --- Truthfulness ---
+        # --- Truthfulness & Design ---
         "Never invent tool outputs. If a tool returns an error, fix it or report it briefly if unfixable.",
+        "CRITICAL: Follow Rule 3 strictly: 'in designs never use emojies and instead use icons'. NEVER use emojis in your responses or when instructions for subagents. Use text icons like [OK], [MNG], [JOB], [RUN] instead.",
     ]
 
     agent = Agent(

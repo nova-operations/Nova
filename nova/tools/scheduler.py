@@ -291,7 +291,7 @@ async def _execute_subagent_recall(
 
         # For recall tasks, we don't wait for the subagent to complete
         notification_msg = (
-            f"🚀 Subagent '{subagent_name}' triggered by scheduled task (ID: {job_id})"
+            f"[RUN] Subagent '{subagent_name}' triggered by scheduled task (ID: {job_id})"
         )
 
         if notification_enabled:
@@ -326,11 +326,11 @@ async def _execute_team_task(
             silent=True,
         )
 
-        if result.startswith("❌"):
+        if result.startswith("[FAIL]"):
             return "failure", result
 
         if notification_enabled:
-            notification_msg = f"👥 Team Task '{task_name}' ({len(specialist_names)} agents) triggered by schedule (ID: {job_id})"
+            notification_msg = f"[TEAM] Task '{task_name}' ({len(specialist_names)} agents) triggered by schedule (ID: {job_id})"
             await _send_telegram_notification(notification_msg, chat_id=target_chat_id)
 
         return "success", result

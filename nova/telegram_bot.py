@@ -102,15 +102,15 @@ async def delete_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     keyboard = [
         [
             InlineKeyboardButton(
-                "🔥 Confirm Wipe", callback_data="confirm_delete_history"
+                "[DEL] Confirm Delete", callback_data="confirm_delete_history"
             ),
-            InlineKeyboardButton("❌ Cancel", callback_data="cancel_delete_history"),
+            InlineKeyboardButton("[X] Cancel", callback_data="cancel_delete_history"),
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        "⚠️ WARNING: This will permanently delete ALL database history, agent memories, and session data. Are you absolutely sure?",
+        "[!] WARNING: This will permanently delete ALL database history, agent memories, and session data. Are you absolutely sure?",
         reply_markup=reply_markup,
     )
 
@@ -138,7 +138,7 @@ async def _show_manage_menu(source):
         )
 
         msg = (
-            "🛠 **[MNG] Nova Task Manager**\n\n"
+            "**[MNG] Nova Task Manager**\n\n"
             "Monitor and manage Nova's background operations. "
             "Choose a category below:"
         )
@@ -232,7 +232,7 @@ async def _show_task_detail(query, task_id: int):
         status_tag = "[RUNNING]" if is_running else "[PAUSED]"
 
         msg = (
-            f"🛠 **[MNG] Task Management: {task.task_name}**\n\n"
+            f"**[MNG] Task Management: {task.task_name}**\n\n"
             f"**ID:** `{task.id}`\n"
             f"**Type:** `{task.task_type}`\n"
             f"**Status:** {status_tag}\n"
@@ -394,7 +394,7 @@ async def _show_active_task_detail(query, task_id: int):
             return
 
         msg = (
-            f"[BOT] **Subagent Management: {task.subagent_name}**\n\n"
+            f"**[BOT] Subagent Management: {task.subagent_name}**\n\n"
             f"**Task ID:** `{task.task_id}`\n"
             f"**Type:** `{task.task_type}`\n"
             f"**Status:** `{task.status.value}`\n"
@@ -674,7 +674,7 @@ async def reinvigorate_nova(
     try:
         await telegram_bot_instance.send_message(
             chat_id=cid,
-            text="I found an issue. Fixing it now, please wait.",
+            text="[FAIL] I found an issue. Fixing it now, please wait.",
         )
     except Exception:
         pass

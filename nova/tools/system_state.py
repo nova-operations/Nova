@@ -36,18 +36,18 @@ def get_system_state() -> str:
     session_factory = get_session_factory()
     session = session_factory()
 
-    parts = ["# 🌌 Nova System State Overview\n"]
+    parts = ["# [SYS] Nova System State Overview\n"]
 
     try:
         # 1. Active Project
         project = session.query(ProjectContext).filter(ProjectContext.is_active).first()
         if project:
-            parts.append(f"## 📁 Active Project: **{project.name}**")
+            parts.append(f"## [PRJ] Active Project: **{project.name}**")
             parts.append(f"- **Path:** `{project.absolute_path}`")
             if project.git_remote:
                 parts.append(f"- **Git Remote:** `{project.git_remote}`")
         else:
-            parts.append("## 📁 Active Project: **None** (System running globally)")
+            parts.append("## [PRJ] Active Project: **None** (System running globally)")
 
         parts.append("\n---\n")
 
@@ -57,7 +57,7 @@ def get_system_state() -> str:
             .filter(ActiveTask.status == ActiveTaskStatus.RUNNING)
             .all()
         )
-        parts.append(f"## 🤖 Running Subagents ({len(active_tasks)})")
+        parts.append(f"## [BOT] Running Subagents ({len(active_tasks)})")
         if active_tasks:
             for task in active_tasks:
                 sub_name = task.subagent_name or "Unknown"
@@ -78,7 +78,7 @@ def get_system_state() -> str:
             .filter(ScheduledTask.status == SchedTaskStatus.RUNNING)
             .all()
         )
-        parts.append(f"## ⏱️ Active Scheduled Jobs & Watchers ({len(sched_tasks)})")
+        parts.append(f"## [JOB] Active Scheduled Jobs & Watchers ({len(sched_tasks)})")
 
         watchers = [t for t in sched_tasks if t.task_type == TaskType.WATCHER]
         others = [t for t in sched_tasks if t.task_type != TaskType.WATCHER]
@@ -87,14 +87,14 @@ def get_system_state() -> str:
             parts.append("- No active scheduled jobs.")
         else:
             if watchers:
-                parts.append("### 👀 Background Watchers:")
+                parts.append("### [WATCH] Background Watchers:")
                 for w in watchers:
                     parts.append(
                         f"- **{w.task_name}** (Schedule: `{w.schedule}`) -> Last Run: {w.last_status or 'Never'}"
                     )
 
             if others:
-                parts.append("### 🔄 General Jobs:")
+                parts.append("### [JOB] General Jobs:")
                 for t in others:
                     # t.task_type might be a string from the DB or an Enum
                     type_str = (
@@ -108,7 +108,7 @@ def get_system_state() -> str:
 
     except Exception as e:
         logger.error(f"Error getting system state: {e}")
-        parts.append(f"\n❌ **Error retrieving system state:** {str(e)}")
+        parts.append(f"\n[FAIL] **Error retrieving system state:** {str(e)}")
     finally:
         session.close()
 

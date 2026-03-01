@@ -226,9 +226,9 @@ class HeartbeatMonitor:
     def _generate_report(self, records: List[HeartbeatRecord]) -> str:
         """Generate a human-readable heartbeat report."""
         if not records:
-            return "✅ Heartbeat: No active subagents to monitor."
+            return "[OK] Heartbeat: No active subagents to monitor."
 
-        lines = ["📊 **Heartbeat Report**"]
+        lines = ["[RPT] **Heartbeat Report**"]
         lines.append(f"_{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}_")
         lines.append("")
 
@@ -239,17 +239,17 @@ class HeartbeatMonitor:
             if record.status == "running":
                 running_count += 1
                 elapsed = time.time() - record.start_time
-                emoji = "⚠️" if record.warning_issued else "🔄"
-                lines.append(f"{emoji} **{record.name}**: Running ({elapsed:.0f}s)")
+                status_tag = "[WARN]" if record.warning_issued else "[BUSY]"
+                lines.append(f"{status_tag} **{record.name}**: Running ({elapsed:.0f}s)")
             elif record.status == "completed":
                 completed_count += 1
-                lines.append(f"✅ **{record.name}**: Completed")
+                lines.append(f"[OK] **{record.name}**: Completed")
             elif record.status == "failed":
-                lines.append(f"❌ **{record.name}**: Failed")
+                lines.append(f"[FAIL] **{record.name}**: Failed")
             elif record.status == "starting":
-                lines.append(f"⏳ **{record.name}**: Starting...")
+                lines.append(f"[WAIT] **{record.name}**: Starting...")
             elif record.status == "cancelled":
-                lines.append(f"🚫 **{record.name}**: Cancelled")
+                lines.append(f"[STOP] **{record.name}**: Cancelled")
 
         lines.append("")
         lines.append(f"Summary: {running_count} running, {completed_count} completed")
