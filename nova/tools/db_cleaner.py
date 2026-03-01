@@ -18,35 +18,50 @@ def wipe_all_database_tables():
     metadata = MetaData()
 
     try:
-        # Reflect all tables from the database
-        metadata.reflect(bind=engine)
-
         with engine.begin() as conn:
-            # Disable foreign key checks for the session if postgres
+            # Postgres: Discover all tables across all non-system schemas
             if engine.url.drivername.startswith("postgresql"):
-                # Truncate all tables with CASCADE
-                table_names = [table.name for table in metadata.sorted_tables]
-                if not table_names:
+                # Query information_schema for all user tables
+                query = text(
+                    """
+                    SELECT table_schema, table_name
+                    FROM information_schema.tables
+                    WHERE table_type = 'BASE TABLE'
+                    AND table_schema NOT IN ('information_schema', 'pg_catalog')
+                """
+                )
+                rows = conn.execute(query).fetchall()
+
+                table_list = [
+                    f'"{row.table_schema}"."{row.table_name}"' for row in rows
+                ]
+
+                if not table_list:
                     return "No tables found to wipe."
 
-                # Truncate multiple tables in one command
-                formatted_names = ", ".join([f'"{name}"' for name in table_names])
+                # Truncate all tables with CASCADE
                 truncate_query = (
-                    f"TRUNCATE TABLE {formatted_names} RESTART IDENTITY CASCADE;"
+                    f"TRUNCATE TABLE {', '.join(table_list)} RESTART IDENTITY CASCADE;"
                 )
                 conn.execute(text(truncate_query))
-                logger.info(f"Truncated {len(table_names)} tables: {table_names}")
+
+                count = len(table_list)
+                logger.info(f"Truncated {count} tables across all schemas.")
+                return f"Successfully wiped {count} tables (including 'ai' and 'public' schemas)."
+
             else:
-                # SQLite doesn't support TRUNCATE CASCADE easily, we just delete and vacuum
+                # SQLite: Reflect and delete (SQLite only has 'main')
+                metadata.reflect(bind=engine)
                 for table in reversed(metadata.sorted_tables):
                     conn.execute(text(f'DELETE FROM "{table.name}";'))
                     conn.execute(
                         text(f"DELETE FROM sqlite_sequence WHERE name='{table.name}';")
                     )
                 conn.execute(text("VACUUM;"))
-                logger.info(f"Wiped {len(metadata.sorted_tables)} SQLite tables.")
+                count = len(metadata.sorted_tables)
+                logger.info(f"Wiped {count} SQLite tables.")
+                return f"Successfully wiped {count} tables."
 
-        return f"Successfully wiped {len(metadata.sorted_tables)} tables."
     except Exception as e:
         logger.error(f"Failed to wipe database: {e}")
         return f"Error wiping database: {str(e)}"
