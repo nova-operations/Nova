@@ -43,6 +43,22 @@ class TestErrorBusHandler:
             handler.emit(record)
             mock_session.assert_not_called()
 
+    def test_filter_bash_not_found(self):
+        """Verify 'Function Bash not found' is filtered (auto_heal_error_18)."""
+        handler = ErrorBusHandler()
+        record = MagicMock()
+        record.name = "test_logger"
+        record.levelno = logging.ERROR
+        record.getMessage.return_value = "Function Bash not found"
+        record.exc_info = None
+        record.exc_text = None
+
+        with patch("nova.tools.error_bus.get_session_factory") as mock_session:
+            mock_db = MagicMock()
+            mock_session.return_value.return_value = mock_db
+            handler.emit(record)
+            mock_session.assert_not_called()
+
     def test_allow_other_errors(self):
         """Verify non-filtered errors are NOT filtered (should log to DB)."""
         handler = ErrorBusHandler()
@@ -71,6 +87,7 @@ class TestErrorBusHandler:
             "Function grep not found",
             "Function run_bash_command not found",
             "Function bug-fixer:diagnose_and_fix_bug not found",  # auto_heal_error_15
+            "Function Bash not found",  # auto_heal_error_18
         ]
         
         # Test each filter is actually working

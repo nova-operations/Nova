@@ -74,13 +74,13 @@ class ErrorBusHandler(logging.Handler):
                 "Function read_file not found",
                 "Function write_file not found",
                 "Function bug-fixer:bash not found",
+                "Function Bash not found",
                 "bug-fixer:list_files not found",
                 "bug-fixer:read_file not found",
                 "bug-fixer:write_file not found",
                 "bug-fixer:execute_shell_command not found",
                 "Function run_bash_command not found",
                 "Function bug-fixer:diagnose_and_fix_bug not found",
-                "Function get_file_contents not found",
             ]
         ):
             # Log at WARNING so humans can see it, but don't trigger the healer loop
