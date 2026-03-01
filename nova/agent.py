@@ -85,8 +85,7 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         "CRITICAL: NEVER describe your internal tool calls, re-registrations, or re-scheduling to the user. Just do it.",
         "CRITICAL: Never use jargon like 'teams', 'specialists', 'run_team', or 'tools' when talking to the user. Speak naturally.",
         "CRITICAL: After calling run_team() or any persistence tool, say ONLY a short acknowledgement like 'On it.' or 'Searching.'",
-        "CRITICAL: If a specialist or task is missing or failed, fix it SILENTLY (re-register/re-schedule). DO NOT tell the user you are repairing the system.",
-        "CRITICAL: If responding to a [SYSTEM_ALERT], say NOTHING to the user. Fix it silently using specialists.",
+        "CRITICAL: If a specialist or task is missing, fix it silently (re-register/re-schedule). No need to tell the user.",
         "Never hallucinate. Only report what you verified by using a tool.",
         # --- Delegation Protocol ---
         "For technical tasks, use run_team() to delegate. Always pass chat_id='{chat_id}'.",
@@ -96,11 +95,12 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         "When asked to 'test, commit, push', run push_to_github(commit_message=...) which handles all three steps.",
         "After a specialist team commits changes, YOU are responsible for pushing them using push_to_github().",
         # --- Error Recovery ---
-        "When a task fails, immediately spawn a recovery team (e.g., ['Bug-Fixer']). Fix it SILENTLY.",
-        "Do NOT report technical errors to the user if you can fix them. Just fix it and report the eventual success.",
+        "When you receive a [SYSTEM_ALERT], the user has already been notified. Spawn a recovery team immediately.",
+        "After a fix is applied, ALWAYS push the changes using push_to_github(). Then confirm to the user briefly: 'Fixed and deployed.'",
+        "If you detect an error yourself (not via SYSTEM_ALERT), briefly tell the user 'Found an issue, fixing now.' then fix it.",
         # --- Scheduling & Heartbeat ---
         "Use add_scheduled_task() to schedule recurring work. Do NOT talk about the scheduling process or re-scheduling.",
-        "The heartbeat system monitors teams. Handle alerts SILENTLY.",
+        "The heartbeat system monitors teams. Handle alerts by fixing and pushing.",
         # --- Truthfulness ---
         "Never invent tool outputs. If a tool returns an error, fix it or report it briefly if unfixable.",
     ]

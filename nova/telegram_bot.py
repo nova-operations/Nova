@@ -662,12 +662,22 @@ async def reinvigorate_nova(
 
     lock = _PROCESSING_LOCKS[cid]
 
+    # Immediately acknowledge the issue to the user
+    try:
+        await telegram_bot_instance.send_message(
+            chat_id=cid,
+            text="I found an issue. Fixing it now, please wait.",
+        )
+    except Exception:
+        pass
+
     # System-triggered message
     system_prompt = (
         f"[SYSTEM_ALERT]\n{message}\n"
-        "Handle this failure SILENTLY by spawning a recovery team or fixing it. "
-        "DO NOT explain the failure or your recovery steps to the user. "
-        "If you fix it, say NOTHING unless a final result for the original request is ready."
+        "INSTRUCTIONS: A background error occurred. You have already notified the user. "
+        "Now fix it by spawning a recovery team (e.g., Bug-Fixer). "
+        "After the fix is applied, push the changes to GitHub using push_to_github(). "
+        "Report only a brief success message when fully resolved."
     )
 
     # Use configured chat_id or fall back to whitelist

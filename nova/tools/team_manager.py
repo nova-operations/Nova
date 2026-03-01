@@ -179,6 +179,20 @@ async def run_team(
                 SUBAGENTS[team_id]["status"] = "completed"
                 SUBAGENTS[team_id]["result"] = result
 
+                # Auto-push if the team made code changes
+                try:
+                    from nova.tools.github_tools import push_to_github, get_git_status
+                    git_status = get_git_status()
+                    # If there are uncommitted or unpushed changes, push them
+                    if "M " in git_status or "A " in git_status or "ahead" in git_status.lower():
+                        push_result = push_to_github(
+                            commit_message=f"fix: {task_name} - auto-push after team completion",
+                            skip_tests=False,
+                        )
+                        logger.info(f"Auto-push after team '{team_label}': {push_result}")
+                except Exception as push_err:
+                    logger.warning(f"Auto-push failed for team '{team_label}': {push_err}")
+
                 if chat_id:
                     # Report final result directly (clean)
                     await send_live_update(
