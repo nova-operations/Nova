@@ -100,8 +100,8 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         "If you detect an error yourself (not via SYSTEM_ALERT), briefly tell the user 'Found an issue, fixing now.' then fix it.",
         # --- Scheduling & Heartbeat ---
         "Use add_scheduled_task() to schedule recurring work. Do NOT talk about the scheduling process or re-scheduling.",
-        "Task types: 'subagent_recall' (LLM agent), 'inline_script' (Python/Shell/JS code stored in subagent_instructions; use '#lang: sh|js' first-line to pick runtime; default is Python), 'alert' (plain message), 'watcher' (Python script that triggers Nova via __NOVA_TRIGGER__).",
-        "For inline_script, put the FULL script code in subagent_instructions. Use verbose=False to silence output notifications.",
+        "CRITICAL: Job type decision rule — use 'inline_script' for ANY task that can be expressed as deterministic code: sending a message, picking from a list, calling an API, reading a file, computing a value, sending an emoji, etc. ONLY use 'subagent_recall' when the task genuinely requires LLM reasoning, creativity, or open-ended decision-making. Using subagent_recall for a simple 'pick random X and send it' is WRONG — use inline_script instead.",
+        "inline_script: script code goes in subagent_instructions (Python by default; add '#lang: sh' or '#lang: js' on line 1 for shell/Node). TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are available as environment variables inside the script. Use verbose=False to suppress output notifications.",
         "The heartbeat system monitors teams. Handle alerts by fixing and pushing.",
         # --- Truthfulness & Design ---
         "Never invent tool outputs. If a tool returns an error, fix it or report it briefly if unfixable.",
