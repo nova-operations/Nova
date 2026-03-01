@@ -24,11 +24,18 @@ from nova.tools.scheduler import add_scheduled_task, list_scheduled_tasks
 TOOL_REGISTRY = {
     # Filesystem
     "read_file": read_file,
+    "read_file_content": read_file,  # alias for read_file
+    "read": read_file,  # alias for read_file
+    "open_file": read_file,  # alias for read_file
     "write_file": write_file,
+    "write": write_file,  # alias for write_file
     "list_files": list_files,
+    "ls": list_files,  # alias for list_files
     "list_files_under_directory": list_files_under_directory,
     "delete_file": delete_file,
+    "delete": delete_file,  # alias for delete_file
     "create_directory": create_directory,
+    "mkdir": create_directory,  # alias for create_directory
     # Shell - multiple aliases for shell execution
     "shell": execute_shell_command,
     "bash": execute_shell_command,
@@ -39,6 +46,7 @@ TOOL_REGISTRY = {
     "github_pull": pull_latest_changes,
     "git_status": get_git_status,
     # Scheduling (for DevOps specialists)
+    "add_scheduled_task": add_scheduled_task,
     "scheduler_add": add_scheduled_task,
     "scheduler_list": list_scheduled_tasks,
 }
