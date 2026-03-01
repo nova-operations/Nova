@@ -7,7 +7,6 @@ from typing import Optional
 
 from nova.db.base import Base
 from nova.db.engine import get_session_factory, get_db_engine
-from nova.tools.subagent import create_subagent
 
 
 class ErrorStatus(str, enum.Enum):
@@ -44,18 +43,36 @@ class ErrorBusHandler(logging.Handler):
         if record.levelno < logging.ERROR:
             return
 
-        # Ignore errors from the error bus itself or subagent creation
+        # Ignore errors from the error bus itself or high-noise internal sources
         if record.name in (
             "nova.tools.error_bus",
-            "nova.tools.subagent",
             "nova.tools.scheduler",
-            "nova.tools.team_manager",
             "nova.tools.heartbeat",
             "httpx",
             "telegram",
-            "agno",
             "openai",
         ):
+            return
+
+        # Filter un-fixable LLM hallucination noise (agno runtime tool-call failures)
+        msg = record.getMessage()
+        if any(
+            p in msg
+            for p in [
+                "Function RAG not found",
+                "Function grep not found",
+                "Function Glob not found",
+                "Function ls not found",
+                "Function execute_shell_command not found",
+                "Could not run function write_file",
+                "Missing required argument",
+                "Function web_search not found",
+            ]
+        ):
+            # Log at WARNING so humans can see it, but don't trigger the healer loop
+            logging.getLogger("nova.tools.error_bus").warning(
+                f"[TOOL-MISS] LLM called a hallucinated tool: {msg[:120]}"
+            )
             return
 
         # Ignore transient API errors and database connection errors to prevent recursive loops
@@ -116,15 +133,14 @@ _error_monitor_task = None
 
 
 async def _error_monitor_loop():
-    """Background task that watches for new errors and spawns healing subagents."""
+    """Background task that watches for new errors and spawns healing teams."""
     logger = logging.getLogger("nova.tools.error_bus")
     while True:
         try:
             Session = get_session_factory()
             db = Session()
             try:
-                # CRITICAL: We only process ONE error at a time for auto-healing
-                # to prevent multiple subagents from fighting over codebase fixes.
+                # Process ONE error at a time to avoid healer conflicts
                 new_errors = (
                     db.query(SystemErrorLog)
                     .filter(SystemErrorLog.status == ErrorStatus.NEW)
@@ -133,56 +149,60 @@ async def _error_monitor_loop():
                     .all()
                 )
                 for err in new_errors:
-                    # Additional safety: check if we already tried to fix this error many times
-                    # (In a real system we'd have a retry_count column, but for now we use status logic)
-
                     logger.info(
                         f"Proactively fixing error ID {err.id}: {err.error_message[:100]}..."
                     )
                     err.status = ErrorStatus.FIXING
                     db.commit()
 
-                    # Trigger a healing subagent with STRICT safety requirements
-                    prompt = (
-                        f"An error occurred in the system:\nLogger: {err.logger_name}\nError: {err.error_message}\nTraceback: {err.traceback}\n\n"
+                    task_description = (
+                        f"SYSTEM ERROR — auto-heal required.\n"
+                        f"Logger: {err.logger_name}\n"
+                        f"Error: {err.error_message}\n"
+                        f"Traceback: {err.traceback or 'N/A'}\n\n"
                         "### MANDATORY SAFETY PROTOCOL:\n"
-                        "1. DIAGNOSE the failure by reading relevant code and logs.\n"
-                        "2. IMPLEMENT a fix, but BEFORE writing any code, plan how to verify it.\n"
-                        "3. AFTER editing any .py file, you MUST run `python3 -m py_compile ` to ensure NO syntax errors were introduced.\n"
-                        "4. If the compilation fails, FIX the code immediately before reporting completion.\n"
-                        "5. VERIFY the fix with a small test script if possible.\n\n"
-                        "Please self-heal the system, fix the codebase, and verify the fix."
+                        "1. Read the relevant source file(s) to understand the failure.\n"
+                        "2. Implement a targeted fix. Do NOT change unrelated code.\n"
+                        "3. After editing any .py file, run `python3 -m py_compile <file>` to verify no syntax errors.\n"
+                        "4. If compilation fails, fix it immediately.\n"
+                        "5. Run the relevant test(s) if possible.\n"
+                        "6. Push the fix using push_to_github().\n"
                     )
 
                     try:
-                        # Spawn healer silently — it should fix the issue, not spam the chat
-                        result = await create_subagent(
-                            name=f"auto_healer_{err.id}",
-                            instructions="You are Nova's Auto-Healer. You are an expert at debugging and fixing technical issues safely. You prioritize system integrity and never leave files with syntax errors.",
-                            task=prompt,
-                            silent=True,
-                        )
-                        err.status = ErrorStatus.RESOLVED
-                        logger.info(f"Auto-healer finished for error {err.id}.")
-                    except Exception as e:
-                        err.status = ErrorStatus.FAILED
-                        logger.error(f"Auto-healer failed for error {err.id}: {e}")
-
-                        # VIBRATE: Wake up Nova PM if auto-healing fails or for critical alerts
-                        from nova.telegram_bot import reinvigorate_nova
                         import os
+                        from nova.tools.team_manager import run_team
 
                         chat_id = os.getenv("TELEGRAM_CHAT_ID")
-                        if chat_id:
-                            # Only reinvigorate for non-transient failures
-                            if "too many clients" not in str(e).lower():
+                        # Use the real team runner — specialists have actual tools
+                        result = await run_team(
+                            task_name=f"auto_heal_error_{err.id}",
+                            specialist_names=["Bug-Fixer", "Tester"],
+                            task_description=task_description,
+                            chat_id=chat_id,
+                        )
+                        err.status = ErrorStatus.RESOLVED
+                        logger.info(f"Auto-healer team launched for error {err.id}: {result}")
+                    except Exception as e:
+                        err.status = ErrorStatus.FAILED
+                        logger.error(f"Auto-healer FAILED to launch for error {err.id}: {e}")
+
+                        # Wake Nova PM directly for manual intervention
+                        try:
+                            from nova.telegram_bot import reinvigorate_nova
+                            import os
+
+                            chat_id = os.getenv("TELEGRAM_CHAT_ID")
+                            if chat_id:
                                 await reinvigorate_nova(
                                     chat_id,
-                                    f"🚨 CRITICAL SYSTEM ERROR: Auto-healer failed for error {err.id}.\n"
-                                    f"Error: {err.error_message}\n"
-                                    f"Healing Exception: {str(e)}\n\n"
-                                    "Nova, I need manual intervention or higher-level reasoning to resolve this.",
+                                    f"[CRIT] Auto-healer failed for error {err.id}.\n"
+                                    f"Original error: {err.error_message[:300]}\n"
+                                    f"Healer exception: {str(e)}\n\n"
+                                    "Manual intervention required.",
                                 )
+                        except Exception:
+                            pass
 
                     db.commit()
             finally:
@@ -190,14 +210,13 @@ async def _error_monitor_loop():
         except asyncio.CancelledError:
             break
         except Exception as e:
-            # If we hit "too many clients" here, we should sleep longer
             if "too many clients" in str(e).lower():
                 logger.warning("DB is full, sleeping longer...")
                 await asyncio.sleep(60)
             else:
                 logger.error(f"Error monitor loop exception: {e}")
 
-        await asyncio.sleep(30)  # check every 30 seconds (increased from 10s)
+        await asyncio.sleep(30)
 
 
 def start_error_bus():

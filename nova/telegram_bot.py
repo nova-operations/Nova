@@ -219,39 +219,52 @@ async def _show_tasks_list(source):
 
 async def _show_task_detail(query, task_id: int):
     """Show detailed info and management buttons for a task."""
+    import html
     from nova.tools.scheduler import get_session, ScheduledTask
 
     db = get_session()
     try:
         task = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
         if not task:
-            await query.edit_message_text("❌ Task not found.")
+            await query.edit_message_text("[ERR] Task not found.")
             return
 
         is_running = str(task.status.value).upper() == "RUNNING"
         status_tag = "[RUNNING]" if is_running else "[PAUSED]"
+        notify_tag = "On" if task.notification_enabled else "Off"
 
+        # Use HTML mode — avoids Markdown parse failures with special chars in user content
         msg = (
-            f"**[MNG] Task Management: {task.task_name}**\n\n"
-            f"**ID:** `{task.id}`\n"
-            f"**Type:** `{task.task_type}`\n"
-            f"**Status:** {status_tag}\n"
-            f"**Schedule:** `{task.schedule}`\n"
-            f"**Notifications:** `{'On' if task.notification_enabled else 'Off'}`\n"
-            f"**Target Chat:** `{task.target_chat_id or 'Default'}`\n"
+            f"<b>[MNG] Task: {html.escape(task.task_name)}</b>\n\n"
+            f"<b>ID:</b> <code>{task.id}</code>\n"
+            f"<b>Type:</b> <code>{html.escape(str(task.task_type))}</code>\n"
+            f"<b>Status:</b> {status_tag}\n"
+            f"<b>Schedule:</b> <code>{html.escape(task.schedule)}</code>\n"
+            f"<b>Notifications:</b> {notify_tag}\n"
+            f"<b>Target Chat:</b> <code>{html.escape(str(task.target_chat_id or 'Default'))}</code>\n"
         )
 
         if task.last_run:
-            msg += f"**Last Run:** `{task.last_run.strftime('%Y-%m-%d %H:%M:%S')}`\n"
-            msg += f"**Last Result:** `{task.last_status or 'None'}`\n"
+            msg += f"<b>Last Run:</b> <code>{task.last_run.strftime('%Y-%m-%d %H:%M:%S')}</code>\n"
+            msg += f"<b>Last Result:</b> <code>{html.escape(task.last_status or 'None')}</code>\n"
+
+        # Show the script body for inline_script jobs
+        if str(task.task_type) == "inline_script" and task.subagent_instructions:
+            snippet = task.subagent_instructions[:400]
+            if len(task.subagent_instructions) > 400:
+                snippet += "..."
+            msg += f"\n<b>Script:</b>\n<pre>{html.escape(snippet)}</pre>\n"
+        elif task.subagent_task:
+            snippet = task.subagent_task[:200]
+            if len(task.subagent_task) > 200:
+                snippet += "..."
+            msg += f"\n<b>Task:</b>\n<code>{html.escape(snippet)}</code>\n"
 
         if task.last_output:
-            output_snippet = (
-                task.last_output[:200] + "..."
-                if len(task.last_output) > 200
-                else task.last_output
-            )
-            msg += f"\n**Last Output Snippet:**\n`{output_snippet}`\n"
+            output_snippet = task.last_output[:200]
+            if len(task.last_output) > 200:
+                output_snippet += "..."
+            msg += f"\n<b>Last Output:</b>\n<pre>{html.escape(output_snippet)}</pre>\n"
 
         keyboard = [
             [
@@ -276,7 +289,7 @@ async def _show_task_detail(query, task_id: int):
         ]
 
         await query.edit_message_text(
-            msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+            msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML"
         )
     finally:
         db.close()
@@ -482,78 +495,89 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.answer()
 
-    if query.data == "confirm_delete_history":
-        from nova.tools.db_cleaner import wipe_all_database_tables
+    try:
+        if query.data == "confirm_delete_history":
+            from nova.tools.db_cleaner import wipe_all_database_tables
 
-        await query.edit_message_text("[DEL] Wiping all history... please wait.")
-        result = wipe_all_database_tables()
-        await query.edit_message_text(f"[DONE] {result}")
+            await query.edit_message_text("[DEL] Wiping all history... please wait.")
+            result = wipe_all_database_tables()
+            await query.edit_message_text(f"[DONE] {result}")
 
-    elif query.data == "cancel_delete_history":
-        await query.edit_message_text("[x] Action cancelled. History preserved.")
+        elif query.data == "cancel_delete_history":
+            await query.edit_message_text("[x] Action cancelled. History preserved.")
 
-    elif query.data == "manage_tasks":
-        await _show_manage_menu(query)
+        elif query.data == "manage_tasks":
+            await _show_manage_menu(query)
 
-    elif query.data == "mt_list_scheduled":
-        await _show_tasks_list(query)
+        elif query.data == "mt_list_scheduled":
+            await _show_tasks_list(query)
 
-    elif query.data == "mt_list_active":
-        await _show_active_tasks_list(query)
+        elif query.data == "mt_list_active":
+            await _show_active_tasks_list(query)
 
-    elif query.data.startswith("mt_view:"):
-        task_id = int(query.data.split(":")[1])
-        await _show_task_detail(query, task_id)
+        elif query.data.startswith("mt_view:"):
+            task_id = int(query.data.split(":")[1])
+            await _show_task_detail(query, task_id)
 
-    elif query.data.startswith("mt_at_view:"):
-        task_id = int(query.data.split(":")[1])
-        await _show_active_task_detail(query, task_id)
+        elif query.data.startswith("mt_at_view:"):
+            task_id = int(query.data.split(":")[1])
+            await _show_active_task_detail(query, task_id)
 
-    elif query.data.startswith("mt_run:"):
-        task_id = int(query.data.split(":")[1])
-        await _handle_task_action(query, task_id, "run")
+        elif query.data.startswith("mt_run:"):
+            task_id = int(query.data.split(":")[1])
+            await _handle_task_action(query, task_id, "run")
 
-    elif query.data.startswith("mt_pause:"):
-        task_id = int(query.data.split(":")[1])
-        await _handle_task_action(query, task_id, "pause")
+        elif query.data.startswith("mt_pause:"):
+            task_id = int(query.data.split(":")[1])
+            await _handle_task_action(query, task_id, "pause")
 
-    elif query.data.startswith("mt_resume:"):
-        task_id = int(query.data.split(":")[1])
-        await _handle_task_action(query, task_id, "resume")
+        elif query.data.startswith("mt_resume:"):
+            task_id = int(query.data.split(":")[1])
+            await _handle_task_action(query, task_id, "resume")
 
-    elif query.data.startswith("mt_del_conf:"):
-        task_id = int(query.data.split(":")[1])
-        await _show_task_delete_confirm(query, task_id)
+        elif query.data.startswith("mt_del_conf:"):
+            task_id = int(query.data.split(":")[1])
+            await _show_task_delete_confirm(query, task_id)
 
-    elif query.data.startswith("mt_del:"):
-        task_id = int(query.data.split(":")[1])
-        await _handle_task_action(query, task_id, "delete")
+        elif query.data.startswith("mt_del:"):
+            task_id = int(query.data.split(":")[1])
+            await _handle_task_action(query, task_id, "delete")
 
-    elif query.data.startswith("mt_toggle_notify:"):
-        task_id = int(query.data.split(":")[1])
-        from nova.tools.scheduler import get_session, ScheduledTask
-        db = get_session()
+        elif query.data.startswith("mt_toggle_notify:"):
+            task_id = int(query.data.split(":")[1])
+            from nova.tools.scheduler import get_session, ScheduledTask
+            db = get_session()
+            try:
+                task = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
+                if task:
+                    task.notification_enabled = not task.notification_enabled
+                    db.commit()
+                    await query.answer(f"Notifications {'Off' if not task.notification_enabled else 'On'}")
+                    await _show_task_detail(query, task_id)
+            finally:
+                db.close()
+
+        elif query.data.startswith("mt_at_pause:"):
+            task_id = int(query.data.split(":")[1])
+            await _handle_active_task_action(query, task_id, "pause")
+
+        elif query.data.startswith("mt_at_resume:"):
+            task_id = int(query.data.split(":")[1])
+            await _handle_active_task_action(query, task_id, "resume")
+
+        elif query.data.startswith("mt_at_kill:"):
+            task_id = int(query.data.split(":")[1])
+            await _handle_active_task_action(query, task_id, "kill")
+
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"callback_handler error [{query.data}]: {e}")
         try:
-            task = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
-            if task:
-                task.notification_enabled = not task.notification_enabled
-                db.commit()
-                await query.answer(f"Notifications {'Off' if not task.notification_enabled else 'On'}")
-                await _show_task_detail(query, task_id)
-        finally:
-            db.close()
-
-    elif query.data.startswith("mt_at_pause:"):
-        task_id = int(query.data.split(":")[1])
-        await _handle_active_task_action(query, task_id, "pause")
-
-    elif query.data.startswith("mt_at_resume:"):
-        task_id = int(query.data.split(":")[1])
-        await _handle_active_task_action(query, task_id, "resume")
-
-    elif query.data.startswith("mt_at_kill:"):
-        task_id = int(query.data.split(":")[1])
-        await _handle_active_task_action(query, task_id, "kill")
+            await query.edit_message_text(
+                f"[ERR] Action failed: {str(e)[:200]}\n\nThe error has been logged for self-healing."
+            )
+        except Exception:
+            pass  # If we can't even edit, just swallow — Telegram likely rate-limiting
 
 
 async def heartbeat_callback(report: str, records: List[object]):
