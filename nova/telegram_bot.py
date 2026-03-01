@@ -81,6 +81,53 @@ def is_authorized(user_id: int) -> bool:
     return str(user_id) in whitelist
 
 
+def _content_changed(query, new_text: str, new_reply_markup=None) -> bool:
+    """
+    Check if the new content is different from the existing message content.
+    Returns True if content has changed (needs update), False if identical.
+    This prevents 'Message is not modified' errors from Telegram API.
+    """
+    try:
+        # Get the current message text
+        current_text = query.message.text if query.message else ""
+        if current_text is None:
+            current_text = ""
+
+        # Compare text
+        if current_text != new_text:
+            return True
+
+        # Compare reply_markup if provided
+        if new_reply_markup is not None:
+            current_markup = query.message.reply_markup if query.message else None
+            # Convert both to JSON for comparison
+            current_markup_json = current_markup.to_json() if current_markup else None
+            new_markup_json = new_reply_markup.to_json() if new_reply_markup else None
+            if current_markup_json != new_markup_json:
+                return True
+
+        return False
+    except Exception:
+        # If we can't compare, assume content changed to be safe
+        return True
+
+
+async def _safe_edit_message(query, new_text: str, reply_markup=None, parse_mode=None):
+    """
+    Safely edit a message only if content has changed.
+    This avoids 'Message is not modified' errors from Telegram API.
+    """
+    if not _content_changed(query, new_text, reply_markup):
+        logging.debug("Message content unchanged, skipping edit")
+        return
+
+    await query.edit_message_text(
+        new_text,
+        reply_markup=reply_markup,
+        parse_mode=parse_mode
+    )
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_authorized(user_id):
@@ -163,9 +210,7 @@ async def _show_manage_menu(source):
         elif hasattr(source, "message") and hasattr(source.message, "reply_text"):
             await source.message.reply_text(msg, reply_markup=reply_markup, parse_mode="Markdown")
         elif hasattr(source, "edit_message_text"):
-            await source.edit_message_text(
-                msg, reply_markup=reply_markup, parse_mode="Markdown"
-            )
+            await _safe_edit_message(source, msg, reply_markup=reply_markup, parse_mode="Markdown")
     finally:
         db.close()
 
@@ -185,7 +230,7 @@ async def _show_tasks_list(source):
             elif hasattr(source, "message") and hasattr(source.message, "reply_text"):
                 await source.message.reply_text(msg, parse_mode="Markdown")
             elif hasattr(source, "edit_message_text"):
-                await source.edit_message_text(msg, parse_mode="Markdown")
+                await _safe_edit_message(source, msg, parse_mode="Markdown")
             return
 
         msg = f"[JOB] **Scheduled Tasks ({len(tasks)})**\n\nSelect a task to manage:"
@@ -210,9 +255,7 @@ async def _show_tasks_list(source):
         elif hasattr(source, "message") and hasattr(source.message, "reply_text"):
             await source.message.reply_text(msg, reply_markup=reply_markup, parse_mode="Markdown")
         elif hasattr(source, "edit_message_text"):
-            await source.edit_message_text(
-                msg, reply_markup=reply_markup, parse_mode="Markdown"
-            )
+            await _safe_edit_message(source, msg, reply_markup=reply_markup, parse_mode="Markdown")
     finally:
         db.close()
 
@@ -226,7 +269,7 @@ async def _show_task_detail(query, task_id: int):
     try:
         task = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
         if not task:
-            await query.edit_message_text("[ERR] Task not found.")
+            await _safe_edit_message(query, "[ERR] Task not found.")
             return
 
         is_running = str(task.status.value).upper() == "RUNNING"
@@ -288,8 +331,8 @@ async def _show_task_detail(query, task_id: int):
             [InlineKeyboardButton("< Back to List", callback_data="manage_tasks")],
         ]
 
-        await query.edit_message_text(
-            msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML"
+        await _safe_edit_message(
+            query, msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML"
         )
     finally:
         db.close()
@@ -303,7 +346,7 @@ async def _show_task_delete_confirm(query, task_id: int):
     try:
         task = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
         if not task:
-            await query.edit_message_text("❌ Task not found.")
+            await _safe_edit_message(query, "❌ Task not found.")
             return
 
         msg = f"[!] **Delete Task: {task.task_name}**\n\nAre you sure you want to permanently remove this scheduled task?"
@@ -313,8 +356,8 @@ async def _show_task_delete_confirm(query, task_id: int):
                 InlineKeyboardButton("[x] Cancel", callback_data=f"mt_view:{task_id}"),
             ]
         ]
-        await query.edit_message_text(
-            msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+        await _safe_edit_message(
+            query, msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
     finally:
         db.close()
@@ -375,8 +418,8 @@ async def _show_active_tasks_list(query):
         if not tasks:
             msg = "[BOT] **Active Subagents**\n\nNo active subagents running."
             keyboard = [[InlineKeyboardButton("< Back", callback_data="manage_tasks")]]
-            await query.edit_message_text(
-                msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+            await _safe_edit_message(
+                query, msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
             )
             return
 
@@ -393,8 +436,8 @@ async def _show_active_tasks_list(query):
             )
 
         keyboard.append([InlineKeyboardButton("< Back", callback_data="manage_tasks")])
-        await query.edit_message_text(
-            msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+        await _safe_edit_message(
+            query, msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
     finally:
         db.close()
@@ -409,7 +452,7 @@ async def _show_active_task_detail(query, task_id: int):
     try:
         task = db.query(ActiveTask).filter(ActiveTask.id == task_id).first()
         if not task:
-            await query.edit_message_text("❌ Subagent task not found.")
+            await _safe_edit_message(query, "❌ Subagent task not found.")
             return
 
         msg = (
@@ -440,8 +483,8 @@ async def _show_active_task_detail(query, task_id: int):
             [InlineKeyboardButton("< Back to List", callback_data="mt_list_active")]
         )
 
-        await query.edit_message_text(
-            msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+        await _safe_edit_message(
+            query, msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
     finally:
         db.close()
@@ -499,12 +542,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if query.data == "confirm_delete_history":
             from nova.tools.db_cleaner import wipe_all_database_tables
 
-            await query.edit_message_text("[DEL] Wiping all history... please wait.")
+            # Check if content changed before editing
+            if _content_changed(query, "[DEL] Wiping all history... please wait."):
+                await query.edit_message_text("[DEL] Wiping all history... please wait.")
             result = wipe_all_database_tables()
-            await query.edit_message_text(f"[DONE] {result}")
+            await _safe_edit_message(query, f"[DONE] {result}")
 
         elif query.data == "cancel_delete_history":
-            await query.edit_message_text("[x] Action cancelled. History preserved.")
+            await _safe_edit_message(query, "[x] Action cancelled. History preserved.")
 
         elif query.data == "manage_tasks":
             await _show_manage_menu(query)
@@ -573,8 +618,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         import logging
         logging.getLogger(__name__).error(f"callback_handler error [{query.data}]: {e}")
         try:
-            await query.edit_message_text(
-                f"[ERR] Action failed: {str(e)[:200]}\n\nThe error has been logged for self-healing."
+            await _safe_edit_message(
+                query, f"[ERR] Action failed: {str(e)[:200]}\n\nThe error has been logged for self-healing."
             )
         except Exception:
             pass  # If we can't even edit, just swallow — Telegram likely rate-limiting
