@@ -70,6 +70,7 @@ class ErrorBusHandler(logging.Handler):
                 "Function list_files not found",
                 "Function list_directory not found",
                 "Function list_files_under_directory not found",
+                "Function get_current_directory not found",
                 "Function read_file not found",
                 "Function write_file not found",
                 "Function bug-fixer:bash not found",
