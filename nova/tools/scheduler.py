@@ -834,17 +834,23 @@ def add_scheduled_task(
 
         logger.info(f"Added scheduled task: {task_name}")
 
-        # Fire immediately if requested — user sees the first result right away
+        # Fire immediately — use APScheduler's date trigger so it executes inside the
+        # AsyncIOScheduler's own event loop, which works correctly from any thread
+        # (including Agno's thread pool executor where tool calls run).
         if run_immediately:
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(_job_executor(task.id))
-                    logger.info(f"Triggered immediate first run of '{task_name}'")
-                else:
-                    logger.warning(f"No running event loop to trigger immediate run of '{task_name}'")
+                from datetime import datetime, timedelta
+                scheduler.add_job(
+                    _job_executor,
+                    trigger="date",
+                    run_date=datetime.utcnow() + timedelta(seconds=1),
+                    args=[task.id],
+                    id=f"immediate_{task.id}",
+                    replace_existing=True,
+                )
+                logger.info(f"Immediate first run queued for '{task_name}'")
             except Exception as e:
-                logger.warning(f"Could not trigger immediate run of '{task_name}': {e}")
+                logger.warning(f"Could not queue immediate run of '{task_name}': {e}")
 
         return f"[OK] '{task_name}' scheduled (running every {schedule})."
 
