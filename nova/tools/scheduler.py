@@ -732,6 +732,7 @@ def add_scheduled_task(
     verbose: Optional[bool] = None,
     alert_message: Optional[str] = None,
     chat_id: Optional[str] = None,
+    run_immediately: bool = True,
 ) -> str:
     """
     Add a new scheduled task.
@@ -752,6 +753,8 @@ def add_scheduled_task(
         verbose: Alias for notification_enabled.
         alert_message: Alias for subagent_task for alert type.
         chat_id: Optional specific chat ID to send notifications to.
+        run_immediately: If True (default), run the task once right after creation.
+                         Set to False only if you want to wait for the first cron tick.
 
     Returns:
         Confirmation message.
@@ -830,7 +833,20 @@ def add_scheduled_task(
         )
 
         logger.info(f"Added scheduled task: {task_name}")
-        return f"✅ '{task_name}' scheduled."
+
+        # Fire immediately if requested — user sees the first result right away
+        if run_immediately:
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(_job_executor(task.id))
+                    logger.info(f"Triggered immediate first run of '{task_name}'")
+                else:
+                    logger.warning(f"No running event loop to trigger immediate run of '{task_name}'")
+            except Exception as e:
+                logger.warning(f"Could not trigger immediate run of '{task_name}': {e}")
+
+        return f"[OK] '{task_name}' scheduled (running every {schedule})."
 
     except Exception as e:
         logger.error(f"Failed to add scheduled task: {e}")
@@ -851,7 +867,7 @@ def list_scheduled_tasks() -> str:
         if not tasks:
             return "No scheduled tasks found."
 
-        lines = ["📅 **Scheduled Tasks**", ""]
+        lines = ["[SCH] Scheduled Tasks", ""]
 
         for task in tasks:
             lines.append(f"**ID: {task.id} | {task.task_name}**")
@@ -1031,7 +1047,7 @@ def update_scheduled_task(
                 replace_existing=True,
             )
 
-        return f"✅ Task '{task_name}' updated successfully."
+        return f"[OK] Task '{task_name}' updated successfully."
 
     except Exception as e:
         logger.error(f"Failed to update scheduled task: {e}")
@@ -1098,7 +1114,7 @@ def pause_scheduled_task(task_name: str) -> str:
         except:
             pass
 
-        return f"⏸️ Task '{task_name}' paused."
+        return f"[PAUSED] Task '{task_name}' paused."
 
     except Exception as e:
         return f"Error: {e}"
@@ -1136,7 +1152,7 @@ def resume_scheduled_task(task_name: str) -> str:
             replace_existing=True,
         )
 
-        return f"▶️ Task '{task_name}' resumed."
+        return f"[RESUMED] Task '{task_name}' resumed."
 
     except Exception as e:
         return f"Error: {e}"
