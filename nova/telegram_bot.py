@@ -121,7 +121,8 @@ async def manage_tasks_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(user_id):
         return
 
-    await _show_manage_menu(update if update.message else update.callback_query)
+    # Pass update.message for commands, query for button clicks
+    await _show_manage_menu(update.message if update.message else update.callback_query)
 
 
 async def _show_manage_menu(source):
@@ -137,7 +138,7 @@ async def _show_manage_menu(source):
         )
 
         msg = (
-            "🛠 **Nova Task Manager**\n\n"
+            "🛠 **[MNG] Nova Task Manager**\n\n"
             "Monitor and manage Nova's background operations. "
             "Choose a category below:"
         )
@@ -145,20 +146,23 @@ async def _show_manage_menu(source):
         keyboard = [
             [
                 InlineKeyboardButton(
-                    f"📅 Background Jobs ({sched_count})", callback_data="mt_list_scheduled"
+                    f"[JOB] Background Jobs ({sched_count})", callback_data="mt_list_scheduled"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    f"🤖 Active Subagents ({active_count})", callback_data="mt_list_active"
+                    f"[BOT] Active Subagents ({active_count})", callback_data="mt_list_active"
                 )
             ],
         ]
 
         reply_markup = InlineKeyboardMarkup(keyboard)
+        # Handle cases where source is Update object or Message/CallbackQuery
         if hasattr(source, "reply_text"):
             await source.reply_text(msg, reply_markup=reply_markup, parse_mode="Markdown")
-        else:
+        elif hasattr(source, "message") and hasattr(source.message, "reply_text"):
+            await source.message.reply_text(msg, reply_markup=reply_markup, parse_mode="Markdown")
+        elif hasattr(source, "edit_message_text"):
             await source.edit_message_text(
                 msg, reply_markup=reply_markup, parse_mode="Markdown"
             )
@@ -175,33 +179,37 @@ async def _show_tasks_list(source):
         tasks = db.query(ScheduledTask).order_by(ScheduledTask.id).all()
 
         if not tasks:
-            msg = "📅 **Scheduled Tasks**\n\nNo tasks found."
+            msg = "[JOB] **Scheduled Tasks**\n\nNo tasks found."
             if hasattr(source, "reply_text"):
                 await source.reply_text(msg, parse_mode="Markdown")
-            else:
+            elif hasattr(source, "message") and hasattr(source.message, "reply_text"):
+                await source.message.reply_text(msg, parse_mode="Markdown")
+            elif hasattr(source, "edit_message_text"):
                 await source.edit_message_text(msg, parse_mode="Markdown")
             return
 
-        msg = f"📅 **Scheduled Tasks ({len(tasks)})**\n\nSelect a task to manage:"
+        msg = f"[JOB] **Scheduled Tasks ({len(tasks)})**\n\nSelect a task to manage:"
         keyboard = []
         for task in tasks:
-            # ScheduledTask status is uppercase RUNNING
-            status_emoji = "🟢" if str(task.status.value).upper() == "RUNNING" else "🟡"
+            # Simple [x] or [o] for status instead of emojis
+            status_tag = "[OK]" if str(task.status.value).upper() == "RUNNING" else "[||]"
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        f"{status_emoji} {task.task_name}",
+                        f"{status_tag} {task.task_name}",
                         callback_data=f"mt_view:{task.id}",
                     )
                 ]
             )
 
-        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="manage_tasks")])
+        keyboard.append([InlineKeyboardButton("< Back", callback_data="manage_tasks")])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
         if hasattr(source, "reply_text"):
             await source.reply_text(msg, reply_markup=reply_markup, parse_mode="Markdown")
-        else:
+        elif hasattr(source, "message") and hasattr(source.message, "reply_text"):
+            await source.message.reply_text(msg, reply_markup=reply_markup, parse_mode="Markdown")
+        elif hasattr(source, "edit_message_text"):
             await source.edit_message_text(
                 msg, reply_markup=reply_markup, parse_mode="Markdown"
             )
@@ -221,13 +229,13 @@ async def _show_task_detail(query, task_id: int):
             return
 
         is_running = str(task.status.value).upper() == "RUNNING"
-        status_emoji = "🟢 RUNNING" if is_running else "🟡 PAUSED"
+        status_tag = "[RUNNING]" if is_running else "[PAUSED]"
 
         msg = (
-            f"🛠 **Task Management: {task.task_name}**\n\n"
+            f"🛠 **[MNG] Task Management: {task.task_name}**\n\n"
             f"**ID:** `{task.id}`\n"
             f"**Type:** `{task.task_type}`\n"
-            f"**Status:** {status_emoji}\n"
+            f"**Status:** {status_tag}\n"
             f"**Schedule:** `{task.schedule}`\n"
             f"**Notifications:** `{'On' if task.notification_enabled else 'Off'}`\n"
             f"**Target Chat:** `{task.target_chat_id or 'Default'}`\n"
@@ -247,18 +255,18 @@ async def _show_task_detail(query, task_id: int):
 
         keyboard = [
             [
-                InlineKeyboardButton("🚀 Run Now", callback_data=f"mt_run:{task_id}"),
+                InlineKeyboardButton("|> Run Now", callback_data=f"mt_run:{task_id}"),
             ],
             [
                 InlineKeyboardButton(
-                    "⏸ Pause" if is_running else "▶️ Resume",
+                    "|| Pause" if is_running else "> Resume",
                     callback_data=f"mt_pause:{task_id}"
                     if is_running
                     else f"mt_resume:{task_id}",
                 ),
-                InlineKeyboardButton("🗑 Delete", callback_data=f"mt_del_conf:{task_id}"),
+                InlineKeyboardButton("[DEL] Delete", callback_data=f"mt_del_conf:{task_id}"),
             ],
-            [InlineKeyboardButton("⬅️ Back to List", callback_data="manage_tasks")],
+            [InlineKeyboardButton("< Back to List", callback_data="manage_tasks")],
         ]
 
         await query.edit_message_text(
@@ -279,11 +287,11 @@ async def _show_task_delete_confirm(query, task_id: int):
             await query.edit_message_text("❌ Task not found.")
             return
 
-        msg = f"⚠️ **Delete Task: {task.task_name}**\n\nAre you sure you want to permanently remove this scheduled task?"
+        msg = f"[!] **Delete Task: {task.task_name}**\n\nAre you sure you want to permanently remove this scheduled task?"
         keyboard = [
             [
-                InlineKeyboardButton("🔥 Confirm Delete", callback_data=f"mt_del:{task_id}"),
-                InlineKeyboardButton("❌ Cancel", callback_data=f"mt_view:{task_id}"),
+                InlineKeyboardButton("[KILL] Confirm Delete", callback_data=f"mt_del:{task_id}"),
+                InlineKeyboardButton("[x] Cancel", callback_data=f"mt_view:{task_id}"),
             ]
         ]
         await query.edit_message_text(
@@ -346,26 +354,26 @@ async def _show_active_tasks_list(query):
         )
 
         if not tasks:
-            msg = "🤖 **Active Subagents**\n\nNo active subagents running."
-            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="manage_tasks")]]
+            msg = "[BOT] **Active Subagents**\n\nNo active subagents running."
+            keyboard = [[InlineKeyboardButton("< Back", callback_data="manage_tasks")]]
             await query.edit_message_text(
                 msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
             )
             return
 
-        msg = f"🤖 **Active Subagents ({len(tasks)})**\n\nSelect a subagent to manage:"
+        msg = f"[BOT] **Active Subagents ({len(tasks)})**\n\nSelect a subagent to manage:"
         keyboard = []
         for task in tasks:
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        f"🤖 {task.subagent_name} ({task.task_id[:8]})",
+                        f"[BOT] {task.subagent_name} ({task.task_id[:8]})",
                         callback_data=f"mt_at_view:{task.id}",
                     )
                 ]
             )
 
-        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="manage_tasks")])
+        keyboard.append([InlineKeyboardButton("< Back", callback_data="manage_tasks")])
         await query.edit_message_text(
             msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
@@ -386,7 +394,7 @@ async def _show_active_task_detail(query, task_id: int):
             return
 
         msg = (
-            f"🤖 **Subagent Management: {task.subagent_name}**\n\n"
+            f"[BOT] **Subagent Management: {task.subagent_name}**\n\n"
             f"**Task ID:** `{task.task_id}`\n"
             f"**Type:** `{task.task_type}`\n"
             f"**Status:** `{task.status.value}`\n"
@@ -401,16 +409,16 @@ async def _show_active_task_detail(query, task_id: int):
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    "⏸ Pause" if is_running else "▶️ Resume",
+                    "|| Pause" if is_running else "> Resume",
                     callback_data=f"mt_at_pause:{task.id}"
                     if is_running
                     else f"mt_at_resume:{task.id}",
                 ),
-                InlineKeyboardButton("🛑 Kill / Stop", callback_data=f"mt_at_kill:{task_id}"),
+                InlineKeyboardButton("[STOP] Kill / Stop", callback_data=f"mt_at_kill:{task_id}"),
             ]
         )
         keyboard.append(
-            [InlineKeyboardButton("⬅️ Back to List", callback_data="mt_list_active")]
+            [InlineKeyboardButton("< Back to List", callback_data="mt_list_active")]
         )
 
         await query.edit_message_text(
@@ -471,12 +479,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "confirm_delete_history":
         from nova.tools.db_cleaner import wipe_all_database_tables
 
-        await query.edit_message_text("🗑️ Wiping all history... please wait.")
+        await query.edit_message_text("[DEL] Wiping all history... please wait.")
         result = wipe_all_database_tables()
-        await query.edit_message_text(f"🏁 {result}")
+        await query.edit_message_text(f"[DONE] {result}")
 
     elif query.data == "cancel_delete_history":
-        await query.edit_message_text("❌ Action cancelled. History preserved.")
+        await query.edit_message_text("[x] Action cancelled. History preserved.")
 
     elif query.data == "manage_tasks":
         await _show_manage_menu(query)
