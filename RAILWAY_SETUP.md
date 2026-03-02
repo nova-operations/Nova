@@ -2,7 +2,7 @@
 
 [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/nova-operations/Nova)
 
-This guide explains how to set up Nova on Railway from scratch. Nova can use either a persistent Volume (for SQLite) or a managed PostgreSQL database for its memory.
+This guide explains how to set up Nova on Railway from scratch. Highly recommended: **Fork this repository first** so you can use Nova's self-improvement features on your own codebase. Nova can use either a persistent Volume (for SQLite) or a managed PostgreSQL database for its memory.
 
 ## Option A: Using PostgreSQL (Recommended)
 

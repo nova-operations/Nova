@@ -29,7 +29,7 @@ To test your build locally without interfering with the live Telegram bot (avoid
 docker build -t nova .
 
 # Run the smoke test
-docker run --env-file .env nova python smoke_test.py
+docker run --env-file .env nova python tests/smoke_test.py
 ```
 
 ## Deployment on Railway
@@ -50,8 +50,8 @@ This is the recommended setup for robust performance and memory persistence.
     *   Add your environment variables in the Railway **Variables** tab:
         - `TELEGRAM_BOT_TOKEN`: From [@BotFather](https://t.me/botfather).
         - `OPENROUTER_API_KEY`: From OpenRouter.
-        - `GITHUB_TOKEN`: Required for self-improvement (pushing code).
-        - `GITHUB_REPO`: Your repository path (e.g., `nova-operations/Nova`).
+        - `GITHUB_TOKEN`: Required for self-improvement (pushing code). Needs `repo` permissions.
+        - `GITHUB_REPO`: Your forked repository path (e.g., `<your-username>/<your-repo-name>`).
 4.  **Deploy:**
     ```bash
     railway up

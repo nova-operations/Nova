@@ -9,7 +9,7 @@ This skill helps you maintain and improve your own codebase reliably.
 
 ## Instructions
 
-1. **Safety First**: Before making significant changes, always run `python smoke_test.py` to ensure you haven't broken core functionality.
+1. **Safety First**: Before making significant changes, always run `python tests/smoke_test.py` to ensure you haven't broken core functionality.
 2. **Contextual Awareness**: Your primary workspace is `/app/data/nova_repo`. All tool modifications should happen relative to this path.
 3. **Atomic Changes**: Commit small, logical changes rather than large dumps. Use descriptive commit messages.
 4. **Tool Creation**: When creating new tools:
