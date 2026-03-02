@@ -25,7 +25,7 @@ def setup_logging():
 
     # Initialize Error Bus by default to capture all errors for Nova self-healing
     try:
-        from nova.tools.error_bus import start_error_bus
+        from nova.tools.core.error_bus import start_error_bus
 
         start_error_bus()
     except Exception as e:

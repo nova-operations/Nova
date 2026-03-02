@@ -14,12 +14,12 @@ from telegram.ext import (
 )
 from nova.agent import get_agent
 from nova.logger import setup_logging
-from nova.tools.heartbeat import get_heartbeat_monitor
-from nova.tools.subagent import SUBAGENTS
+from nova.tools.core.heartbeat import get_heartbeat_monitor
+from nova.tools.agents.subagent import SUBAGENTS
 from agno.media import Audio, Image, Video, File
 
 # Import the middle-out transformer for explicit prompt compression
-from nova.tools.prompt_transformer import (
+from nova.tools.core.prompt_transformer import (
     MiddleOutTransformer,
     get_transformer,
     DEFAULT_TOKEN_LIMIT,
@@ -198,7 +198,7 @@ async def manage_tasks_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _show_manage_menu(source):
     """Entry point for task management - choose category."""
-    from nova.tools.scheduler import get_session, ScheduledTask
+    from nova.tools.scheduler.scheduler import get_session, ScheduledTask
     from nova.db.deployment_models import ActiveTask, TaskStatus as ATS
 
     db = get_session()
@@ -241,7 +241,7 @@ async def _show_manage_menu(source):
 
 async def _show_tasks_list(source):
     """Helper to show the list of scheduled tasks with basic info."""
-    from nova.tools.scheduler import get_session, ScheduledTask
+    from nova.tools.scheduler.scheduler import get_session, ScheduledTask
 
     db = get_session()
     try:
@@ -287,7 +287,7 @@ async def _show_tasks_list(source):
 async def _show_task_detail(query, task_id: int):
     """Show detailed info and management buttons for a task."""
     import html
-    from nova.tools.scheduler import get_session, ScheduledTask
+    from nova.tools.scheduler.scheduler import get_session, ScheduledTask
 
     db = get_session()
     try:
@@ -364,7 +364,7 @@ async def _show_task_detail(query, task_id: int):
 
 async def _show_task_delete_confirm(query, task_id: int):
     """Show confirmation for task deletion."""
-    from nova.tools.scheduler import get_session, ScheduledTask
+    from nova.tools.scheduler.scheduler import get_session, ScheduledTask
 
     db = get_session()
     try:
@@ -389,7 +389,7 @@ async def _show_task_delete_confirm(query, task_id: int):
 
 async def _handle_task_action(query, task_id: int, action: str):
     """Dispatch management actions to the scheduler tools."""
-    from nova.tools.scheduler import (
+    from nova.tools.scheduler.scheduler import (
         get_session,
         ScheduledTask,
         run_scheduled_task_now,
@@ -430,7 +430,7 @@ async def _handle_task_action(query, task_id: int, action: str):
 
 async def _show_active_tasks_list(query):
     """List currently running subagents."""
-    from nova.tools.scheduler import get_session
+    from nova.tools.scheduler.scheduler import get_session
     from nova.db.deployment_models import ActiveTask, TaskStatus as ATS
 
     db = get_session()
@@ -469,7 +469,7 @@ async def _show_active_tasks_list(query):
 
 async def _show_active_task_detail(query, task_id: int):
     """Show details for an active subagent task."""
-    from nova.tools.scheduler import get_session
+    from nova.tools.scheduler.scheduler import get_session
     from nova.db.deployment_models import ActiveTask
 
     db = get_session()
@@ -516,7 +516,7 @@ async def _show_active_task_detail(query, task_id: int):
 
 async def _handle_active_task_action(query, task_id: int, action: str):
     """Handle actions on active subagent tasks."""
-    from nova.tools.scheduler import get_session
+    from nova.tools.scheduler.scheduler import get_session
     from nova.db.deployment_models import ActiveTask, TaskStatus as ATS
     from nova.deployment_task_manager import get_manager
 
@@ -564,7 +564,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         if query.data == "confirm_delete_history":
-            from nova.tools.db_cleaner import wipe_all_database_tables
+            from nova.tools.database.db_cleaner import wipe_all_database_tables
 
             # Check if content changed before editing
             if _content_changed(query, "[DEL] Wiping history... please wait."):
@@ -573,7 +573,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _safe_edit_message(query, f"[DONE] {result}")
 
         elif query.data == "confirm_factory_reset":
-            from nova.tools.db_cleaner import wipe_all_database_tables
+            from nova.tools.database.db_cleaner import wipe_all_database_tables
 
             if _content_changed(query, "[☢️] NUKE IN PROGRESS... please wait."):
                 await query.edit_message_text("[☢️] NUKE IN PROGRESS... please wait.")
@@ -622,7 +622,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif query.data.startswith("mt_toggle_notify:"):
             task_id = int(query.data.split(":")[1])
-            from nova.tools.scheduler import get_session, ScheduledTask
+            from nova.tools.scheduler.scheduler import get_session, ScheduledTask
             db = get_session()
             try:
                 task = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
@@ -903,7 +903,7 @@ async def process_nova_intent(
             agent = get_agent(chat_id=str(chat_id))
             session_id = str(user_id)
 
-            from nova.tools.subagent import SUBAGENTS as ACTIVE_SUBAGENTS
+            from nova.tools.agents.subagent import SUBAGENTS as ACTIVE_SUBAGENTS
 
             active_subs = [
                 s["name"]
@@ -1081,9 +1081,9 @@ async def handle_error(update: Optional[object], context: ContextTypes.DEFAULT_T
 
 async def post_init(application):
     """Callback to run after the bot starts and the loop is running."""
-    from nova.tools.scheduler import initialize_scheduler
-    from nova.tools.error_bus import start_error_bus
-    from nova.tools.specialist_registry import seed_default_specialists
+    from nova.tools.scheduler.scheduler import initialize_scheduler
+    from nova.tools.core.error_bus import start_error_bus
+    from nova.tools.core.specialist_registry import seed_default_specialists
 
     try:
         initialize_scheduler()

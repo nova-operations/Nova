@@ -19,7 +19,7 @@ load_dotenv()
 async def verify_audio_message():
     """Test sending an audio message to the user."""
     from telegram import Bot
-    from nova.tools.audio_tools import (
+    from nova.tools.audio.audio_tools import (
         send_audio_message,
         generate_tts_audio,
         save_audio_file,
@@ -74,7 +74,7 @@ async def verify_audio_message():
 
 async def verify_edge_tts_direct():
     """Direct test of edge-tts generation."""
-    from nova.tools.audio_tools import generate_edge_tts, save_audio_file
+    from nova.tools.audio.audio_tools import generate_edge_tts, save_audio_file
 
     test_text = "Testing edge t t s integration. This is a free text to speech service."
 

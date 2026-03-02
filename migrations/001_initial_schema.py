@@ -7,9 +7,9 @@ sys.path.insert(0, os.getcwd())
 
 from nova.db.base import Base
 from nova.db.engine import get_db_engine
-from nova.tools.mcp_registry import MCPServerConfig
-from nova.tools.specialist_registry import SpecialistConfig
-from nova.tools.scheduler import ScheduledTask
+from nova.tools.mcp.mcp_registry import MCPServerConfig
+from nova.tools.core.specialist_registry import SpecialistConfig
+from nova.tools.scheduler.scheduler.scheduler import ScheduledTask
 
 
 def run_migrations():

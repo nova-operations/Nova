@@ -1,5 +1,5 @@
 import unittest
-from nova.tools.specialist_registry import save_specialist_config, get_specialist_config, list_specialists
+from nova.tools.core.specialist_registry import save_specialist_config, get_specialist_config, list_specialists
 
 class TestSpecialistRegistry(unittest.TestCase):
 
@@ -11,7 +11,7 @@ class TestSpecialistRegistry(unittest.TestCase):
         # Ensure Researcher exists (seed if missing)
         config = get_specialist_config("Researcher")
         if config is None:
-             from nova.tools.specialist_registry import seed_default_specialists
+             from nova.tools.core.specialist_registry import seed_default_specialists
              seed_default_specialists()
              config = get_specialist_config("Researcher")
              

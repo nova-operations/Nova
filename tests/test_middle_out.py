@@ -15,7 +15,7 @@ for mod_name in list(sys.modules.keys()):
     if "nova" in mod_name:
         del sys.modules[mod_name]
 
-from nova.tools.prompt_transformer import (
+from nova.tools.core.prompt_transformer import (
     MiddleOutTransformer,
     TransformResult,
     DEFAULT_TOKEN_LIMIT,

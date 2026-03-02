@@ -2,7 +2,7 @@
 import logging
 import pytest
 from unittest.mock import patch, MagicMock
-from nova.tools.error_bus import ErrorBusHandler
+from nova.tools.core.error_bus import ErrorBusHandler
 
 
 class TestErrorBusHandler:
@@ -19,7 +19,7 @@ class TestErrorBusHandler:
         record.exc_text = None
 
         # Should not log to DB (filtered)
-        with patch("nova.tools.error_bus.get_session_factory") as mock_session:
+        with patch("nova.tools.core.error_bus.get_session_factory") as mock_session:
             mock_db = MagicMock()
             mock_session.return_value.return_value = mock_db
             handler.emit(record)
@@ -37,7 +37,7 @@ class TestErrorBusHandler:
         record.exc_info = None
         record.exc_text = None
 
-        with patch("nova.tools.error_bus.get_session_factory") as mock_session:
+        with patch("nova.tools.core.error_bus.get_session_factory") as mock_session:
             mock_db = MagicMock()
             mock_session.return_value.return_value = mock_db
             handler.emit(record)
@@ -53,7 +53,7 @@ class TestErrorBusHandler:
         record.exc_info = None
         record.exc_text = None
 
-        with patch("nova.tools.error_bus.get_session_factory") as mock_session:
+        with patch("nova.tools.core.error_bus.get_session_factory") as mock_session:
             mock_db = MagicMock()
             mock_session.return_value.return_value = mock_db
             handler.emit(record)
@@ -70,7 +70,7 @@ class TestErrorBusHandler:
         record.exc_text = None
         record.formatted = "Some other real error"
 
-        with patch("nova.tools.error_bus.get_session_factory") as mock_session:
+        with patch("nova.tools.core.error_bus.get_session_factory") as mock_session:
             mock_db = MagicMock()
             mock_session.return_value.return_value = mock_db
             handler.emit(record)
@@ -99,7 +99,7 @@ class TestErrorBusHandler:
             record.exc_info = None
             record.exc_text = None
 
-            with patch("nova.tools.error_bus.get_session_factory") as mock_session:
+            with patch("nova.tools.core.error_bus.get_session_factory") as mock_session:
                 mock_db = MagicMock()
                 mock_session.return_value.return_value = mock_db
                 handler.emit(record)

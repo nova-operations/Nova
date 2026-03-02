@@ -14,7 +14,7 @@ class TestListFilesFunction:
 
     def test_list_files_basic(self):
         """Test list_files with a basic directory listing."""
-        from nova.tools.filesystem import list_files
+        from nova.tools.system.filesystem import list_files
         
         # List current directory
         result = list_files(".")
@@ -24,7 +24,7 @@ class TestListFilesFunction:
 
     def test_list_files_nonexistent_path(self):
         """Test list_files with a non-existent directory."""
-        from nova.tools.filesystem import list_files
+        from nova.tools.system.filesystem import list_files
         
         result = list_files("/nonexistent/path/that/does/not/exist")
         assert "Error" in result
@@ -32,7 +32,7 @@ class TestListFilesFunction:
 
     def test_list_files_with_temp_directory(self):
         """Test list_files with a temporary directory."""
-        from nova.tools.filesystem import list_files
+        from nova.tools.system.filesystem import list_files
         
         # Create a temp directory with some files
         temp_dir = tempfile.mkdtemp()
@@ -51,7 +51,7 @@ class TestListFilesFunction:
 
     def test_list_files_via_registry(self):
         """Test that list_files is properly registered in the registry."""
-        from nova.tools.registry import get_tools_by_names, TOOL_REGISTRY
+        from nova.tools.core.registry import get_tools_by_names, TOOL_REGISTRY
         
         # Check it's in the registry
         assert "list_files" in TOOL_REGISTRY
@@ -63,7 +63,7 @@ class TestListFilesFunction:
 
     def test_list_files_via_specialist_registry(self):
         """Test that list_files is available in specialist registry."""
-        from nova.tools.specialist_registry import get_specialist_config, save_specialist_config
+        from nova.tools.core.specialist_registry import get_specialist_config, save_specialist_config
         
         # A specialist config that includes list_files
         config = save_specialist_config(
@@ -97,7 +97,7 @@ class TestListFilesIntegration:
 
     def test_list_files_function_callable(self):
         """Test that list_files can be called and returns results."""
-        from nova.tools.filesystem import list_files
+        from nova.tools.system.filesystem import list_files
         
         # Call the function with a known path
         result = list_files(".")
@@ -109,7 +109,7 @@ class TestListFilesIntegration:
 
     def test_list_files_error_handling(self):
         """Test list_files properly handles errors."""
-        from nova.tools.filesystem import list_files
+        from nova.tools.system.filesystem import list_files
         
         # Test with empty string (should error)
         result = list_files("")

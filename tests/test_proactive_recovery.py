@@ -11,7 +11,7 @@ os.environ["TELEGRAM_USER_WHITELIST"] = "123456"
 sys.modules["croniter"] = MagicMock()
 
 from nova.telegram_bot import reinvigorate_nova, process_nova_intent
-from nova.tools.subagent import SUBAGENTS
+from nova.tools.agents.subagent import SUBAGENTS
 
 
 @pytest.mark.asyncio
@@ -77,7 +77,7 @@ async def test_process_nova_intent_delegation_note():
 @pytest.mark.asyncio
 async def test_subagent_failure_triggers_reinvigorate():
     """Test that run_subagent_task calls reinvigorate_nova on exception."""
-    from nova.tools.subagent import run_subagent_task
+    from nova.tools.agents.subagent import run_subagent_task
 
     subagent_id = "fail_sub"
     SUBAGENTS[subagent_id] = {
@@ -100,13 +100,13 @@ async def test_subagent_failure_triggers_reinvigorate():
         async def __aexit__(self, exc_type, exc, tb):
             pass
 
-    with patch("nova.tools.subagent.StreamingContext", return_value=MockContext()):
+    with patch("nova.tools.agents.subagent.StreamingContext", return_value=MockContext()):
         with patch(
             "nova.telegram_bot.reinvigorate_nova", new_callable=AsyncMock
         ) as mock_reinvigorate:
             # We need to mock the get_task_tracker to avoid DB issues in unit test
             with patch(
-                "nova.tools.subagent.get_task_tracker", return_value=MagicMock()
+                "nova.tools.agents.subagent.get_task_tracker", return_value=MagicMock()
             ):
                 await run_subagent_task(subagent_id, mock_agent, "Do something risky")
 

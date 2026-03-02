@@ -1,8 +1,8 @@
 import pytest
 import os
 from unittest.mock import patch, MagicMock
-from nova.tools.mcp_registry import mcp_registry
-from nova.tools.specialist_registry import (
+from nova.tools.mcp.mcp_registry import mcp_registry
+from nova.tools.core.specialist_registry import (
     save_specialist_config,
     get_specialist_config,
     list_specialists,

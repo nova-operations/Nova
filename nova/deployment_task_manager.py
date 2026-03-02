@@ -76,7 +76,7 @@ class DeploymentTaskManager:
 
         # Seed default specialists first (needed for team tasks)
         try:
-            from nova.tools.specialist_registry import seed_default_specialists
+            from nova.tools.core.specialist_registry import seed_default_specialists
             seeding_result = seed_default_specialists()
             result["specialists_seeded"] = True
             result["seeding_result"] = seeding_result

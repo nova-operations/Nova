@@ -2,9 +2,9 @@ import pytest
 import os
 from unittest.mock import MagicMock, patch
 from nova.agent import get_agent
-from nova.tools.dev_protocol import run_protocol
-from nova.tools.specialist_registry import list_specialists, seed_default_specialists
-from nova.tools.team_manager import run_team
+from nova.tools.core.dev_protocol import run_protocol
+from nova.tools.core.specialist_registry import list_specialists, seed_default_specialists
+from nova.tools.agents.team_manager import run_team
 
 
 @pytest.fixture
@@ -53,7 +53,7 @@ def test_specialist_list():
 
 def test_specialist_tool_cap():
     """Each specialist should have max 5 tools."""
-    from nova.tools.specialist_registry import SpecialistConfig, _get_session
+    from nova.tools.core.specialist_registry import SpecialistConfig, _get_session
 
     session = _get_session()
     try:

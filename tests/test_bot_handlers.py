@@ -176,14 +176,14 @@ async def test_msg_meta_injected(mock_update, mock_context):
 @pytest.mark.asyncio
 async def test_chat_control_reply_to_message():
     """Test reply_to_message tool returns success."""
-    from nova.tools.chat_control import reply_to_message
+    from nova.tools.chat.chat_control import reply_to_message
 
     mock_bot = AsyncMock()
     sent_msg = MagicMock()
     sent_msg.message_id = 200
     mock_bot.send_message = AsyncMock(return_value=sent_msg)
 
-    with patch("nova.tools.chat_control._get_telegram_bot", return_value=mock_bot):
+    with patch("nova.tools.chat.chat_control._get_telegram_bot", return_value=mock_bot):
         result = await reply_to_message(chat_id="456", message_id=100, text="Hi")
         assert "Replied successfully" in result
         mock_bot.send_message.assert_called_once_with(
@@ -196,12 +196,12 @@ async def test_chat_control_reply_to_message():
 @pytest.mark.asyncio
 async def test_chat_control_pin_message():
     """Test pin_message tool returns success."""
-    from nova.tools.chat_control import pin_message
+    from nova.tools.chat.chat_control import pin_message
 
     mock_bot = AsyncMock()
     mock_bot.pin_chat_message = AsyncMock()
 
-    with patch("nova.tools.chat_control._get_telegram_bot", return_value=mock_bot):
+    with patch("nova.tools.chat.chat_control._get_telegram_bot", return_value=mock_bot):
         result = await pin_message(chat_id="456", message_id=100)
         assert "pinned successfully" in result
         mock_bot.pin_chat_message.assert_called_once()

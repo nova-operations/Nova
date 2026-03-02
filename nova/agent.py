@@ -16,35 +16,35 @@ from agno.tools.tavily import TavilyTools
 
 from nova.db.engine import get_agno_db  # kept for other tools that may use it
 from nova.db.shared_memory import get_shared_db
-from nova.tools.shell import execute_shell_command
-from nova.tools.team_manager import run_team
-from nova.tools.system_state import get_system_state
-from nova.tools.github_tools import push_to_github, get_git_status
-from nova.tools.scheduler import (
+from nova.tools.system.shell import execute_shell_command
+from nova.tools.agents.team_manager import run_team
+from nova.tools.core.system_state import get_system_state
+from nova.tools.github.github_tools import push_to_github, get_git_status
+from nova.tools.scheduler.scheduler import (
     add_scheduled_task,
     list_scheduled_tasks,
     remove_scheduled_task,
 )
-from nova.tools.mcp_tools import (
+from nova.tools.mcp.mcp_tools import (
     add_mcp_server,
     remove_mcp_server,
     list_registered_mcp_servers,
 )
-from nova.tools.audio_tool_wrapper import send_audio_message
-from nova.tools.web_search import web_search
-from nova.tools.chat_control import (
+from nova.tools.audio.audio_tool_wrapper import send_audio_message
+from nova.tools.web.web_search import web_search
+from nova.tools.chat.chat_control import (
     reply_to_message,
     pin_message,
     unpin_message,
     forward_message,
     delete_message,
 )
-from nova.tools.project_manager import (
+from nova.tools.system.project_manager import (
     add_or_update_project,
     list_projects,
     set_active_project,
 )
-from nova.tools.specialist_registry import save_specialist_config, list_specialists
+from nova.tools.core.specialist_registry import save_specialist_config, list_specialists
 from nova.logger import setup_logging
 
 load_dotenv()

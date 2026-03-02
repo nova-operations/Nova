@@ -417,7 +417,7 @@ def notify_recovery_to_telegram() -> bool:
         # Only send if there were interrupted tasks
         summary, _ = recovery.recover_interrupted_tasks()
         if summary.get("running_tasks_found", 0) > 0:
-            from nova.tools.telegram_notifier import (
+            from nova.tools.chat.telegram_notifier import (
                 send_telegram_message,
                 get_notifications_chat_id,
             )
