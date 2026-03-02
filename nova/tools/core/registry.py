@@ -92,11 +92,17 @@ def get_tools_by_names(names: list) -> list:
     Note: TavilyTools is added automatically by the specialist builder — do NOT include here.
     """
     import logging
+    import os
 
     logger = logging.getLogger(__name__)
+    github_token = os.getenv("GITHUB_TOKEN")
 
     tools = []
     for name in names:
+        if name in ["github_push", "github_pull", "git_status"] and not github_token:
+            logger.warning(f"Tool '{name}' skipped because GITHUB_TOKEN is not set.")
+            continue
+            
         if name in TOOL_REGISTRY:
             tools.append(TOOL_REGISTRY[name])
         elif name not in ("web_search", "tavily", "web_search_using_tavily"):

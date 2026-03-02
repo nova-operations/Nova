@@ -847,9 +847,11 @@ async def reinvigorate_nova(
         f"[SYSTEM_ALERT]\n{message}\n"
         "INSTRUCTIONS: A background error occurred. You have already notified the user. "
         "Now fix it by spawning a recovery team (e.g., Bug-Fixer). "
-        "After the fix is applied, push the changes to GitHub using push_to_github(). "
-        "Report only a brief success message when fully resolved."
     )
+    if os.getenv("GITHUB_TOKEN"):
+        system_prompt += "After the fix is applied, push the changes to GitHub using push_to_github(). "
+    
+    system_prompt += "Report only a brief success message when fully resolved."
 
     # Use configured chat_id or fall back to whitelist
     user_id = int(

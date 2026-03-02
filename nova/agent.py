@@ -74,14 +74,15 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
     db = get_shared_db()
 
     tavily_api_key = os.getenv("TAVILY_API_KEY")
+    github_token = os.getenv("GITHUB_TOKEN")
 
     agent_tools = [
         TavilyTools(api_key=tavily_api_key) if tavily_api_key else None,
         web_search,  # Optimized version
         run_team,  # Primary delegation tool
         get_system_state,  # Check running agents/tasks
-        push_to_github,  # Commit and push code changes
-        get_git_status,  # Check repository status
+        push_to_github if github_token else None,  # Commit and push code changes
+        get_git_status if github_token else None,  # Check repository status
         add_scheduled_task,  # Schedule future work
         list_scheduled_tasks,  # See what's scheduled
         remove_scheduled_task,  # Remove scheduled tasks
@@ -119,14 +120,9 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         "run_team() takes ONLY names from that list. If the task doesn't fit a specialist, use run_team() with the closest single specialist (e.g., ['Researcher'] for lookups, ['Geopolitics-Expert'] for news).",
         "For NON-technical one-off tasks (voice messages, sending something, fetching news, looking something up) — use run_team() with ONE relevant specialist. Do NOT spin up multi-specialist teams for simple single-purpose tasks.",
         "Wait for verified results. Do NOT pre-announce or predict outcomes. Just act then wait.",
-        # --- Git & Deployment ---
-        "You CAN and SHOULD push code using push_to_github() after verifying tests pass.",
-        "CRITICAL: Every time a codebase change is made — by you or a team — you MUST immediately call push_to_github(commit_message=...) afterwards. Do NOT wait for the user to say 'commit' or 'push'. Test, commit, and push is the MANDATORY final step of every code change.",
-        "When asked to 'test, commit, push', run push_to_github(commit_message=...) which handles all three steps.",
-        "After a specialist team commits changes, YOU are responsible for pushing them using push_to_github().",
         # --- Error Recovery ---
         "When you receive a [SYSTEM_ALERT], the user has already been notified. Spawn a recovery team immediately.",
-        "After a fix is applied, ALWAYS push the changes using push_to_github(). Then confirm to the user briefly: 'Fixed and deployed.'",
+        "After a fix is applied, ALWAYS push the changes using push_to_github() (if available). Then confirm to the user briefly: 'Fixed and deployed.'",
         "If you detect an error yourself (not via SYSTEM_ALERT), briefly tell the user 'Found an issue, fixing now.' then fix it.",
         # --- Scheduling & Heartbeat ---
         "Use add_scheduled_task() to schedule recurring work. Do NOT talk about the scheduling process or re-scheduling.",
@@ -143,6 +139,15 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         # --- Truthfulness & Design ---
         "Never invent tool outputs. If a tool returns an error, fix it or report it briefly if unfixable.",
     ]
+    
+    if github_token:
+        instructions.extend([
+            # --- Git & Deployment ---
+            "You CAN and SHOULD push code using push_to_github() after verifying tests pass.",
+            "CRITICAL: Every time a codebase change is made — by you or a team — you MUST immediately call push_to_github(commit_message=...) afterwards. Do NOT wait for the user to say 'commit' or 'push'. Test, commit, and push is the MANDATORY final step of every code change.",
+            "When asked to 'test, commit, push', run push_to_github(commit_message=...) which handles all three steps.",
+            "After a specialist team commits changes, YOU are responsible for pushing them using push_to_github().",
+        ])
 
     agent = Agent(
         model=model,

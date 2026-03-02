@@ -181,8 +181,10 @@ async def _error_monitor_loop():
                         "3. After editing any .py file, run `python3 -m py_compile <file>` to verify no syntax errors.\n"
                         "4. If compilation fails, fix it immediately.\n"
                         "5. Run the relevant test(s) if possible.\n"
-                        "6. Push the fix using push_to_github().\n"
                     )
+                    import os
+                    if os.getenv("GITHUB_TOKEN"):
+                        task_description += "6. Push the fix using push_to_github().\n"
 
                     try:
                         import os
@@ -199,7 +201,7 @@ async def _error_monitor_loop():
                                 f"Logger: {err.logger_name}\n"
                                 f"Error: {err.error_message[:400]}\n"
                                 f"Traceback: {err.traceback[:300] if err.traceback else 'N/A'}\n\n"
-                                "Diagnose the failure, fix the code, run tests, and push. "
+                                "Diagnose the failure, fix the code, run tests, and push if possible. "
                                 "Use run_team(['Bug-Fixer', 'Tester'], ...) to delegate.",
                             )
                             err.status = ErrorStatus.RESOLVED

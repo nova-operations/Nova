@@ -167,6 +167,16 @@ async def run_team(
         # user_id so their memories are merged in the shared DB.
         run_user_id = user_id or chat_id or "nova_system"
 
+        team_instructions = [
+            "Coordinate to complete the task. Be concise and accurate.",
+            "Only report verified results. Never hallucinate.",
+            "Delegate subtasks to the most appropriate team member.",
+            "You have shared memory with Nova and all other specialists — use it.",
+        ]
+        
+        if os.getenv("GITHUB_TOKEN"):
+            team_instructions.insert(3, "After fixing code, use push_to_github() to commit and push changes.")
+
         # Build the agno Team — also on the shared DB
         team = Team(
             name=team_label,
@@ -174,13 +184,7 @@ async def run_team(
             model=_get_model(),
             db=get_shared_db(),
             description=f"Specialist team for: {team_label}",
-            instructions=[
-                "Coordinate to complete the task. Be concise and accurate.",
-                "Only report verified results. Never hallucinate.",
-                "Delegate subtasks to the most appropriate team member.",
-                "After fixing code, use push_to_github() to commit and push changes.",
-                "You have shared memory with Nova and all other specialists — use it.",
-            ],
+            instructions=team_instructions,
             markdown=False,
             add_datetime_to_context=True,
             learning=True,
@@ -211,26 +215,27 @@ async def run_team(
                 SUBAGENTS[team_id]["result"] = result
 
                 # Auto-push if the team made code changes
-                try:
-                    from nova.tools.github.github_tools import push_to_github, get_git_status
+                if os.getenv("GITHUB_TOKEN"):
+                    try:
+                        from nova.tools.github.github_tools import push_to_github, get_git_status
 
-                    git_status = get_git_status()
-                    if (
-                        "M " in git_status
-                        or "A " in git_status
-                        or "ahead" in git_status.lower()
-                    ):
-                        push_result = push_to_github(
-                            commit_message=f"fix: {task_name} - auto-push after team completion",
-                            skip_tests=False,
+                        git_status = get_git_status()
+                        if (
+                            "M " in git_status
+                            or "A " in git_status
+                            or "ahead" in git_status.lower()
+                        ):
+                            push_result = push_to_github(
+                                commit_message=f"fix: {task_name} - auto-push after team completion",
+                                skip_tests=False,
+                            )
+                            logger.info(
+                                f"Auto-push after team '{team_label}': {push_result}"
+                            )
+                    except Exception as push_err:
+                        logger.warning(
+                            f"Auto-push failed for team '{team_label}': {push_err}"
                         )
-                        logger.info(
-                            f"Auto-push after team '{team_label}': {push_result}"
-                        )
-                except Exception as push_err:
-                    logger.warning(
-                        f"Auto-push failed for team '{team_label}': {push_err}"
-                    )
 
                 if chat_id:
                     await send_live_update(
