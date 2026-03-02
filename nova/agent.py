@@ -32,6 +32,13 @@ from nova.tools.mcp_tools import (
 )
 from nova.tools.audio_tool_wrapper import send_audio_message
 from nova.tools.web_search import web_search
+from nova.tools.chat_control import (
+    reply_to_message,
+    pin_message,
+    unpin_message,
+    forward_message,
+    delete_message,
+)
 from nova.tools.project_manager import (
     add_or_update_project,
     list_projects,
@@ -87,6 +94,11 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         remove_mcp_server,  # MCP management
         list_registered_mcp_servers,  # MCP management
         send_audio_message,  # Speak to user
+        reply_to_message,  # Reply to a specific message
+        pin_message,  # Pin a message in the chat
+        unpin_message,  # Unpin a message
+        forward_message,  # Forward a message
+        delete_message,  # Delete a message
         execute_shell_command,  # Emergency fallback only
     ]
     # Filter out None values (in case Tavily key missing)
@@ -122,6 +134,12 @@ def get_agent(model_id: Optional[str] = None, chat_id: Optional[str] = None) -> 
         "CRITICAL: Job type decision rule \u2014 use 'inline_script' for ANY task that can be expressed as deterministic code: sending a message, picking from a list, calling an API, reading a file, computing a value, sending an emoji, etc. ONLY use 'subagent_recall' when the task genuinely requires LLM reasoning, creativity, or open-ended decision-making. Using subagent_recall for a simple 'pick random X and send it' is WRONG \u2014 use inline_script instead.",
         "inline_script: script code goes in subagent_instructions (Python by default; add '#lang: sh' or '#lang: js' on line 1 for shell/Node). TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are available as environment variables inside the script. Use verbose=False to suppress output notifications.",
         "The heartbeat system monitors teams. Handle alerts by fixing and pushing.",
+        # --- Chat Control ---
+        "Every user message starts with [MSG_META chat_id=... message_id=...]. These are Telegram IDs you can use with reply_to_message, pin_message, etc.",
+        "When the user replies to a previous message, you will receive [REPLY CONTEXT] with the replied-to message_id, author, content, media type, and any quoted text the user highlighted.",
+        "Use reply_to_message(chat_id, message_id, text) to directly reply to a specific message in the chat thread. This is useful when referencing earlier messages.",
+        "Use pin_message(chat_id, message_id) to pin a message. Use unpin_message to unpin. These are powerful chat-management tools — use them when the user asks.",
+        "If the user replies to a message or quotes a section and asks a question about it, focus your answer on that specific referenced content.",
         # --- Truthfulness & Design ---
         "Never invent tool outputs. If a tool returns an error, fix it or report it briefly if unfixable.",
     ]

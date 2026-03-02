@@ -750,23 +750,65 @@ def get_prompt_transformer() -> MiddleOutTransformer:
 
 
 async def get_reply_context(update: Update) -> str:
-    """Extract context from the message being replied to."""
+    """Extract rich context from the message being replied to.
+
+    Captures message_id, author, text/caption, media type, and any
+    Telegram client-side quote the user highlighted before replying.
+    """
     if not update.message or not update.message.reply_to_message:
         return ""
 
     replied_msg = update.message.reply_to_message
-    context = "[REPLY CONTEXT]\n"
+    parts = ["[REPLY CONTEXT]"]
+    parts.append(f"Replied-to message_id: {replied_msg.message_id}")
 
     if replied_msg.from_user:
-        context += f"Author: {replied_msg.from_user.first_name}\n"
+        is_bot = replied_msg.from_user.is_bot
+        parts.append(
+            f"Author: {replied_msg.from_user.first_name}"
+            f"{' (bot)' if is_bot else ''}"
+        )
 
+    # Text / caption
     if replied_msg.text:
-        context += f"Message: {replied_msg.text}\n"
-    elif replied_msg.caption:
-        context += f"Caption: {replied_msg.caption}\n"
+        parts.append(f"Text: {replied_msg.text}")
+    if replied_msg.caption:
+        parts.append(f"Caption: {replied_msg.caption}")
 
-    context += "---\n"
-    return context
+    # Media type indicators
+    if replied_msg.video_note:
+        parts.append("Media: video_message (round video note)")
+    elif replied_msg.video:
+        parts.append("Media: video")
+    elif replied_msg.voice:
+        parts.append("Media: voice_message")
+    elif replied_msg.audio:
+        parts.append("Media: audio_file")
+    elif replied_msg.photo:
+        parts.append("Media: photo")
+    elif replied_msg.sticker:
+        parts.append(f"Media: sticker (emoji={replied_msg.sticker.emoji})")
+    elif replied_msg.document:
+        parts.append(
+            f"Media: document (name={replied_msg.document.file_name})"
+        )
+    elif replied_msg.animation:
+        parts.append("Media: GIF/animation")
+    elif replied_msg.contact:
+        parts.append("Media: contact")
+    elif replied_msg.location:
+        parts.append("Media: location")
+    elif replied_msg.poll:
+        parts.append(f"Media: poll (question={replied_msg.poll.question})")
+
+    # Client-side quote (Telegram allows highlighting part of a message)
+    if hasattr(update.message, 'quote') and update.message.quote:
+        quote = update.message.quote
+        if hasattr(quote, 'text') and quote.text:
+            parts.append(f"Quoted section: \"{quote.text}\"")
+
+    parts.append("---")
+    return "\n".join(parts) + "\n"
 
 
 async def reinvigorate_nova(
@@ -837,8 +879,14 @@ async def process_nova_intent(
     audio: Optional[List[Audio]] = None,
     videos: Optional[List[Video]] = None,
     files: Optional[List[File]] = None,
+    reply_to_message_id: Optional[int] = None,
 ):
-    """Core logic to run a Nova iteration without requiring a Telegram Update object."""
+    """Core logic to run a Nova iteration without requiring a Telegram Update object.
+
+    Args:
+        reply_to_message_id: If set, the bot's final response will be sent
+            as a reply to this Telegram message_id.
+    """
     if chat_id not in _PROCESSING_LOCKS:
         _PROCESSING_LOCKS[chat_id] = asyncio.Lock()
 
@@ -876,19 +924,39 @@ async def process_nova_intent(
             )
 
             if response and response.content and telegram_bot_instance:
-                await send_message_with_fallback(
-                    telegram_bot_instance,
-                    chat_id,
-                    response.content,
-                    title="Nova Response",
-                )
+                # Reply to the user's original message when possible
+                try:
+                    clean_content = strip_all_formatting(response.content)
+                    await telegram_bot_instance.send_message(
+                        chat_id=chat_id,
+                        text=clean_content[:TELEGRAM_MAX_LENGTH],
+                        reply_to_message_id=reply_to_message_id,
+                    )
+                    # If the message was long, send the rest via fallback
+                    if len(clean_content) > TELEGRAM_MAX_LENGTH:
+                        await send_message_with_fallback(
+                            telegram_bot_instance,
+                            chat_id,
+                            clean_content,
+                            title="Nova Response",
+                        )
+                except Exception as send_err:
+                    logging.warning(
+                        f"Failed to reply natively (falling back): {send_err}"
+                    )
+                    await send_message_with_fallback(
+                        telegram_bot_instance,
+                        chat_id,
+                        response.content,
+                        title="Nova Response",
+                    )
         except Exception as e:
             logging.error(f"Error in process_nova_intent: {e}")
             if telegram_bot_instance:
                 await send_message_with_fallback(
                     telegram_bot_instance,
                     chat_id,
-                    f"⚠️ Error: {str(e)}\n\nI'm having trouble processing your request. Please check my logs or try again.",
+                    f"Error: {str(e)}\n\nI'm having trouble processing your request. Please check my logs or try again.",
                 )
 
 
@@ -952,12 +1020,18 @@ async def handle_message(
 
     chat_id = update.effective_chat.id
     session_id = str(user_id)
+    current_message_id = update.message.message_id if update.message else None
 
     # Check for reply context
     reply_context = await get_reply_context(update)
     user_message = user_message or ""
+
+    # Inject message metadata so the agent knows the IDs it can reference
+    meta_header = f"[MSG_META chat_id={chat_id} message_id={current_message_id}]\n"
     if reply_context:
-        user_message = reply_context + user_message
+        user_message = meta_header + reply_context + user_message
+    else:
+        user_message = meta_header + user_message
 
     # Concurrency Management: Immediate Engagement
     if chat_id not in _PROCESSING_LOCKS:
@@ -980,6 +1054,7 @@ async def handle_message(
         audio=audio,
         videos=videos,
         files=files,
+        reply_to_message_id=current_message_id,
     )
 
 
